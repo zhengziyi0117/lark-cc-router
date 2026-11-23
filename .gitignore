@@ -1,0 +1,20 @@
+# 运行时状态：水位 + 去重库。删了会重新 bootstrap / 丢去重记录
+state/
+
+# 本机配置：含我的 open_id 和本地项目路径，各人一份，不进仓库
+config.json
+
+# 手工备份（历史包袱，git 已经能管这件事了）
+*.bak
+
+node_modules/
+.DS_Store
+
+# 桌面版打包产物（electron-builder）
+dist/
+
+# 命令行模式下数据目录就是仓库根目录：向导拉的工作区、GitLab token、应用自己装的工具
+workspaces/
+workspaces.json
+git-credentials.json
+bin/

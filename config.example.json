@@ -1,0 +1,21 @@
+{
+  "port": 8787,
+  "pollMs": 60000,
+  "maxJobs": 3,
+  "stateDir": "state",
+  "judgeModel": "claude-haiku-4-5",
+
+  "templates": {
+    "通用": {
+      "project": "~/code/your-project"
+    },
+    "只读排障": {
+      "project": "~/code/my-service",
+      "prompt": "只回答本项目相关的问题，别的一律 SKIP。",
+      "permissionMode": "plan"
+    }
+  },
+
+  "user": { "on": true, "defaultTemplate": "通用", "chats": {}, "allP2p": false, "allGroups": false },
+  "bot": { "on": false, "defaultTemplate": "只读排障", "chats": {}, "allP2p": true, "allGroups": true }
+}

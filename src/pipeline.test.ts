@@ -1,0 +1,541 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  anchorOf, claudeArgsFor, drain, stopJob, imageKeys, investigate, isForMe, isSkip, shouldOpenThread, sinceFor, onBotMessage,
+  type Deps,
+} from './pipeline.ts';
+import { readFileSync, statSync, existsSync } from 'node:fs';
+import type { Message } from './lark.ts';
+import type { AgentEvent, RunOptions, RunResult } from './agent.ts';
+import type { Verdict } from './judge.ts';
+import type { Config, Scope } from './config.ts';
+import { Db } from './db.ts';
+import { Pool } from './store.ts';
+
+const ME = 'ou_me';
+const cfg = { me: ME, self: false };
+
+const msg = (o: Partial<Message> = {}): Message => ({
+  message_id: 'om_1',
+  chat_id: 'oc_1',
+  message_position: '10',
+  content: 'hi',
+  sender: { id: 'ou_other', sender_type: 'user' },
+  mentions: [{ id: ME }],
+  ...o,
+});
+
+test('@我的真人消息算数', () => {
+  assert.equal(isForMe(msg(), ME, false), true);
+});
+
+test('没@我不算', () => {
+  assert.equal(isForMe(msg({ mentions: [] }), ME, false), false);
+});
+
+test('我自己发的不算（防自环）', () => {
+  assert.equal(isForMe(msg({ sender: { id: ME, sender_type: 'user' } }), ME, false), false);
+});
+
+test('self=1 时我自己的也算（调试）', () => {
+  assert.equal(isForMe(msg({ sender: { id: ME, sender_type: 'user' } }), ME, true), true);
+});
+
+test('机器人发的不算', () => {
+  assert.equal(isForMe(msg({ sender: { id: 'ou_bot', sender_type: 'bot' } }), ME, false), false);
+});
+
+test('@别人不算', () => {
+  assert.equal(isForMe(msg({ mentions: [{ id: 'ou_someone' }] }), ME, false), false);
+});
+
+test('单聊跟群一个规矩：都得 @ 我', () => {
+  // 不能因为"是私聊所以每条都算" —— 那意味着每句"厉害""666"都要起一次全权限 CC
+  const dm = msg({ chat_id: 'oc_dm', mentions: [] });
+  assert.equal(isForMe(dm, ME, false), false);
+  assert.equal(isForMe({ ...dm, mentions: [{ id: ME }] }, ME, false), true, '飞书私聊是支持 @ 的，实测 mentions 会带我的 open_id');
+  assert.equal(isForMe({ ...dm, mentions: [{ id: ME }], sender: { id: ME, sender_type: 'user' } }, ME, false), false, '自己发的不算');
+  assert.equal(isForMe({ ...dm, mentions: [{ id: 'ou_bot' }], sender: { id: 'ou_bot', sender_type: 'bot' } }, ME, false), false, '机器人不算');
+});
+
+test('SKIP 判定容忍前后空白', () => {
+  assert.equal(isSkip('SKIP'), true);
+  assert.equal(isSkip('\n SKIP \n'), true);
+  assert.equal(isSkip('SKIP，这条不用回'), true);
+  assert.equal(isSkip('skip'), false, '大小写不认，免得把正常回答误判成跳过');
+  assert.equal(isSkip('结论是 SKIP 开关没开'), false, '只有开头才算');
+  assert.equal(isSkip('SKIP LOCKED 是 PG 的行锁选项'), false, '以 SKIP 开头的正经回答不是哨兵');
+  assert.equal(isSkip('SKIP.'), true);
+});
+
+test('开话题的时机：动了工具、或者开口说了句不是 SKIP 的正文', () => {
+  assert.equal(shouldOpenThread({ kind: 'tool', id: 't1', name: 'Bash' }), true);
+  assert.equal(shouldOpenThread({ kind: 'text', text: '卡在初始化调度' }), true);
+  assert.equal(shouldOpenThread({ kind: 'result', id: 't1', text: 'x', isError: false }), false);
+  assert.equal(shouldOpenThread({ kind: 'init', sessionId: 's' }), false);
+  assert.equal(shouldOpenThread({ kind: 'text', text: 'SKIP' }), false, 'SKIP 就别开话题了');
+  assert.equal(shouldOpenThread({ kind: 'text', text: '  SKIP  ' }), false);
+  assert.equal(shouldOpenThread({ kind: 'text', text: '   ' }), false, '空正文不算开口');
+});
+
+test('思考不算开闸 —— "想一下发现是闲聊" 是最常见的路径', () => {
+  assert.equal(shouldOpenThread({ kind: 'thinking', text: '这条好像是寒暄，我该输出 SKIP' }), false);
+});
+
+test('每轮查哪一段：第一次从"现在"开始，之后带一段重叠', () => {
+  const now = 1_000_000_000_000;
+  assert.equal(sinceFor(undefined, now), now - 30 * 60_000,
+    '第一次跑没有游标 = 从"现在"往前一个重叠窗口，不回放历史');
+
+  // 重叠是必须的：游标推到 T 时，T 之前发出但还没进索引的消息，下次查 [T,...] 就永远丢了
+  assert.equal(sinceFor(now - 60_000, now), now - 60_000 - 30 * 60_000, '正常轮询：带 30 分钟重叠');
+
+  assert.equal(sinceFor(now - 7 * 24 * 3600_000, now), now - 60 * 60_000,
+    '停机一周后重新起来，最多回看 1 小时 —— 别把一周前的 @ 全翻出来回一遍');
+});
+
+test('追问接哪次 session：群里认话题，私聊认引用的那张卡片', () => {
+  assert.equal(anchorOf(msg({ thread_id: 'omt_1' })), 'omt_1', '群里的追问走话题');
+  assert.equal(anchorOf(msg({ reply_to: 'om_card' })), 'om_card',
+    '私聊没有话题（实测 thread_id 恒为空），引用回复的 reply_to 指向我发的那张卡片');
+  assert.equal(anchorOf(msg({ thread_id: 'omt_1', reply_to: 'om_card' })), 'omt_1', '话题优先');
+  assert.equal(anchorOf(msg()), undefined, '既没话题也没引用 = 全新的一次问答');
+});
+
+test('搜索是全量的，没勾进白名单的会话要滤掉', () => {
+  const inList = msg({ message_id: 'om_a', chat_id: 'oc_on' });
+  const notInList = msg({ message_id: 'om_b', chat_id: 'oc_off' });
+  const chats = { oc_on: {} } as Record<string, unknown>;
+  const hits = [inList, notInList].filter((m) => chats[m.chat_id] && isForMe(m, ME, false));
+  assert.deepEqual(hits.map((m) => m.message_id), ['om_a']);
+});
+
+/* ---------- investigate：编排逻辑，飞书和 claude 都换成假的 ---------- */
+
+const tmpDb = () => new Db(mkdtempSync(join(tmpdir(), 'lcr-pipe-')));
+/** 服务级 + 两个入口；chat 在 @我 的白名单里，@机器人 开着 */
+const fullCfg = (chat: string): Config => ({
+  me: ME, port: 0, pollMs: 0, maxJobs: 3, stateDir: '', judgeModel: 'm',
+  templates: { t: { project: tmpdir() } },
+  user: { on: true, defaultTemplate: 't', chats: { [chat]: '' }, allP2p: false, allGroups: false },
+  bot: { on: true, defaultTemplate: 't', chats: {}, allP2p: true, allGroups: true },
+});
+/** investigate 吃的是一个入口眼里的配置（scopeOf(cfg, 'user') 的样子） */
+const testCfg = (chat: string): Scope => ({ ...fullCfg(chat), ...fullCfg(chat).user });
+
+/** 每次 runAgent 调用交给 script 决定怎么跑；记下所有调用和发卡 */
+function fake(script: (o: RunOptions, n: number) => Promise<RunResult>) {
+  const calls: RunOptions[] = [];
+  const replies: string[] = [];
+  const threaded: (boolean | undefined)[] = [];
+  const deletes: string[] = [];
+  const dms: string[] = [];
+  let judged = 0;
+  let verdict: Verdict = { decision: 'answer', reason: '问代码' };
+  let updates = 0;
+  /** 机器人那条路建出来的流式卡片 */
+  const created: unknown[] = [];
+  const deps: Deps = {
+    runAgent: (o) => { calls.push(o); return script(o, calls.length); },
+    replyCard: async (msgId, _card, inThread) => { replies.push(msgId); threaded.push(inThread); return `card-${msgId}`; },
+    updateCard: async () => { updates++; },
+    deleteMessage: async (id) => { deletes.push(id); },
+    threadIdOf: async () => undefined,
+    downloadImage: async (_id, key, out) => `${out}.jpg`,
+    sendText: async (_to, text) => { dms.push(text); },
+    getMessage: async (id) => msg({ message_id: id, sender: { id: 'ou_x', name: '张三', sender_type: 'user' } }),
+    judge: async () => { judged++; return verdict; },
+    kit: {
+      create: async (card) => { created.push(card); return `kc${created.length}`; },
+      text: async () => {}, update: async () => {}, streaming: async () => {},
+    },
+    topic: { list: async () => [], image: async (_id, key, out) => `${out}.jpg` },
+  };
+  return { deps, calls, replies, threaded, deletes, dms, created, updates: () => updates, judged: () => judged, judge: (v: Verdict) => { verdict = v; } };
+}
+const emit = (o: RunOptions, ...evs: AgentEvent[]) => evs.forEach((e) => o.onEvent?.(e));
+const resumeOf = (o: RunOptions) => { const i = o.claudeArgs.indexOf('--resume'); return i < 0 ? undefined : o.claudeArgs[i + 1]; };
+/** 跑到被 abort 为止 */
+const untilAborted = (o: RunOptions) => new Promise<RunResult>((r) =>
+  o.signal!.addEventListener('abort', () => r({ text: '', ok: false }), { once: true }));
+const tick = () => new Promise((r) => setTimeout(r, 5));
+
+test('判了 SKIP：群里一个字节都不发，库里记 skipped', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => {
+    emit(o, { kind: 'init', sessionId: 's1' }, { kind: 'text', text: 'SKIP' });
+    return { text: 'SKIP', ok: true, sessionId: 's1' };
+  });
+  await investigate(testCfg('oc_skip'), new Pool(3), db, msg({ message_id: 'om_s', chat_id: 'oc_skip' }), f.deps);
+  assert.deepEqual(f.replies, []);
+  assert.equal(db.recent(1)[0].status, 'skipped');
+});
+
+test('话题里追问：掐掉还在跑的那次，接着它的 session 问', async () => {
+  const db = tmpDb();
+  const f = fake(async (o, n) => {
+    if (n === 1) { emit(o, { kind: 'init', sessionId: 's1' }, { kind: 'tool', id: 't', name: 'Bash' }); return untilAborted(o); }
+    emit(o, { kind: 'init', sessionId: 's1' }, { kind: 'text', text: '结论' });
+    return { text: '结论', ok: true, sessionId: 's1' };
+  });
+  f.deps.threadIdOf = async () => 'omt_1';
+  const cfg = testCfg('oc_take');
+  const first = investigate(cfg, new Pool(3), db, msg({ message_id: 'om_1', chat_id: 'oc_take' }), f.deps);
+  await tick();
+  assert.equal(db.sessionFor('omt_1'), 's1', '卡片一开出来就记映射，不等跑完');
+
+  await investigate(cfg, new Pool(3), db, msg({ message_id: 'om_2', chat_id: 'oc_take', thread_id: 'omt_1' }), f.deps);
+  await first;
+
+  assert.equal(f.calls.length, 2);
+  assert.equal(resumeOf(f.calls[1]), 's1', '接着被掐那次的 session 问');
+  const rows = Object.fromEntries(db.recent(10).map((r) => [r.msgId, r]));
+  assert.equal(rows.om_1.error, '被追问打断');
+  assert.equal(rows.om_2.status, 'done');
+});
+
+test('群里直接 @我 是新问题：不掐同群在跑的，也不接它的 session', async () => {
+  const db = tmpDb();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const f = fake(async (o, n) => {
+    emit(o, { kind: 'init', sessionId: `s${n}` }, { kind: 'tool', id: 't', name: 'Bash' });
+    if (n === 1) await gate;
+    emit(o, { kind: 'text', text: `答案${n}` });
+    return { text: `答案${n}`, ok: true, sessionId: `s${n}` };
+  });
+  const cfg = testCfg('oc_par');
+  const first = investigate(cfg, new Pool(3), db, msg({ message_id: 'om_p1', chat_id: 'oc_par' }), f.deps);
+  await tick();
+  await investigate(cfg, new Pool(3), db, msg({ message_id: 'om_p2', chat_id: 'oc_par' }), f.deps);
+  release();
+  await first;
+
+  assert.equal(resumeOf(f.calls[1]), undefined, '新 session');
+  assert.deepEqual(db.recent(10).map((r) => r.status).sort(), ['done', 'done'], '两条都跑完，谁也没被掐');
+});
+
+test('私聊：引用上次那张卡片接着问，不引用就是新的', async () => {
+  const db = tmpDb();
+  const f = fake(async (o, n) => {
+    const sid = resumeOf(o) ?? `s${n}`;
+    emit(o, { kind: 'init', sessionId: sid }, { kind: 'text', text: '好' });
+    return { text: '好', ok: true, sessionId: sid };
+  });
+  const cfg = testCfg('oc_dm');
+  const dm = (o: Partial<Message>) => msg({ chat_id: 'oc_dm', chat_type: 'p2p', ...o });
+  await investigate(cfg, new Pool(3), db, dm({ message_id: 'om_d1' }), f.deps);
+  await investigate(cfg, new Pool(3), db, dm({ message_id: 'om_d2', reply_to: 'card-om_d1' }), f.deps);
+  await investigate(cfg, new Pool(3), db, dm({ message_id: 'om_d3' }), f.deps);
+
+  assert.deepEqual(f.calls.map(resumeOf), [undefined, 's1', undefined]);
+  assert.deepEqual(f.threaded, [false, false, false], '单聊（搜索结果的 chat_type）回复不带话题');
+});
+
+test('session 不在了：删掉映射、从零重跑，新 session 记回话题', async () => {
+  const db = tmpDb();
+  db.setSession('omt_1', 'gone');
+  const f = fake(async (o, n) => {
+    if (n === 1) return { text: '', ok: false }; // claude 连 init 都不发
+    emit(o, { kind: 'init', sessionId: 'fresh' }, { kind: 'text', text: '答案' });
+    return { text: '答案', ok: true, sessionId: 'fresh' };
+  });
+  f.deps.threadIdOf = async () => 'omt_1';
+  await investigate(testCfg('oc_stale'), new Pool(3), db, msg({ message_id: 'om_t', chat_id: 'oc_stale', thread_id: 'omt_1' }), f.deps);
+
+  assert.deepEqual(f.calls.map(resumeOf), ['gone', undefined]);
+  assert.equal(db.sessionFor('omt_1'), 'fresh');
+});
+
+test('图片占位符认得出来，重复的只下一次', () => {
+  assert.deepEqual(imageKeys('看下 ![Image](img_v3_0216f_0ad9-8e65g) 和 ![Image](img_v3_b) 再 ![Image](img_v3_0216f_0ad9-8e65g)'),
+    ['img_v3_0216f_0ad9-8e65g', 'img_v3_b']);
+  assert.deepEqual(imageKeys('[文档](https://x.com) 没图'), []);
+});
+
+test('截图下下来，路径拼进 prompt，目录用 --add-dir 放行；下失败的跳过', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => { emit(o, { kind: 'text', text: '看到了' }); return { text: '看到了', ok: true }; });
+  f.deps.downloadImage = async (_id, key, out) => { if (key === 'img_bad') throw new Error('403'); return `${out}.png`; };
+  const q = '这里报错是啥 ![Image](img_ok) ![Image](img_bad)';
+  await investigate(testCfg('oc_img'), new Pool(3), db, msg({ message_id: 'om_i', chat_id: 'oc_img', content: q }), f.deps);
+
+  const [call] = f.calls;
+  assert.ok(call.prompt.startsWith(q), '原问题原样保留');
+  assert.match(call.prompt, /\/tmp\/lark-cc-router\/om_i\/img_ok\.png/);
+  assert.doesNotMatch(call.prompt, /img_bad\.png/);
+  assert.deepEqual(call.claudeArgs.slice(call.claudeArgs.indexOf('--add-dir'), call.claudeArgs.indexOf('--add-dir') + 2),
+    ['--add-dir', '/tmp/lark-cc-router/om_i']);
+  assert.equal(db.recent(1)[0].q, q, '库里和卡片上还是原问题');
+});
+
+/* ---------- 判定：CC 起来之前先判要不要回 ---------- */
+
+const judgedCfg = (chat: string): Scope => {
+  const c = testCfg(chat);
+  c.templates.t.judge = '判一下';
+  return c;
+};
+
+test('模板没选判定 = 直接回：不判，全交给 CC', async () => {
+  const f = fake(async (o) => { emit(o, { kind: 'text', text: '答' }); return { text: '答', ok: true }; });
+  await investigate(testCfg('oc_nj'), new Pool(3), tmpDb(), msg({ message_id: 'om_nj', chat_id: 'oc_nj' }), f.deps);
+  assert.equal(f.judged(), 0);
+  assert.equal(f.calls.length, 1);
+});
+
+test('判了不用回：CC 都不起，库里留理由', async () => {
+  const db = tmpDb();
+  const f = fake(async () => { throw new Error('不该跑'); });
+  f.judge({ decision: 'skip', reason: 'MR 通知' });
+  await investigate(judgedCfg('oc_j1'), new Pool(3), db, msg({ message_id: 'om_j1', chat_id: 'oc_j1' }), f.deps);
+  assert.equal(f.calls.length, 0);
+  assert.deepEqual(f.replies, []);
+  const [row] = db.recent(1);
+  assert.equal(row.status, 'skipped');
+  assert.equal(row.reason, '不用回：MR 通知');
+});
+
+test('判了要回：理由也落库，然后照常跑 CC', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => { emit(o, { kind: 'text', text: '答' }); return { text: '答', ok: true }; });
+  await investigate(judgedCfg('oc_j2'), new Pool(3), db, msg({ message_id: 'om_j2', chat_id: 'oc_j2' }), f.deps);
+  assert.equal(f.calls.length, 1);
+  assert.equal(db.recent(1)[0].reason, '要回：问代码');
+});
+
+test('转给我：私聊我一条（谁、在哪、原话、为什么），群里什么都不发', async () => {
+  const f = fake(async () => { throw new Error('不该跑'); });
+  f.judge({ decision: 'ask_me', reason: '问排期' });
+  const m = msg({ message_id: 'om_j3', chat_id: 'oc_j3', content: '啥时候能好', chat_name: '修改小组', sender: { id: 'ou_x', name: '张三', sender_type: 'user' } });
+  await investigate(judgedCfg('oc_j3'), new Pool(3), tmpDb(), m, f.deps);
+  assert.equal(f.calls.length, 0);
+  assert.deepEqual(f.replies, []);
+  assert.equal(f.dms.length, 1);
+  assert.match(f.dms[0], /张三 在群「修改小组」 @你/);
+  assert.match(f.dms[0], /啥时候能好/);
+  assert.match(f.dms[0], /问排期/);
+});
+
+test('叫停：掐掉这个会话里在跑的', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => { emit(o, { kind: 'init', sessionId: 's9' }, { kind: 'tool', id: 't', name: 'Bash' }); return untilAborted(o); });
+  const cfg = judgedCfg('oc_j4');
+  const busy = investigate(cfg, new Pool(3), db, msg({ message_id: 'om_busy', chat_id: 'oc_j4' }), f.deps);
+  await tick();
+  f.judge({ decision: 'stop', reason: '叫停' });
+  await investigate(cfg, new Pool(3), db, msg({ message_id: 'om_stop', chat_id: 'oc_j4', content: '停止处理' }), f.deps);
+  await busy;
+  const rows = Object.fromEntries(db.recent(10).map((r) => [r.msgId, r]));
+  assert.equal(rows.om_busy.error, '被叫停');
+  assert.equal(rows.om_stop.status, 'skipped');
+});
+
+test('话题里的追问判了不用回：不掐那个 session 上在跑的', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => { emit(o, { kind: 'init', sessionId: 's8' }, { kind: 'tool', id: 't', name: 'Bash' }); return untilAborted(o); });
+  f.deps.threadIdOf = async () => 'omt_8';
+  const cfg = judgedCfg('oc_j5');
+  const busy = investigate(cfg, new Pool(3), db, msg({ message_id: 'om_b8', chat_id: 'oc_j5' }), f.deps);
+  await tick();
+  let sawFollowUp = false;
+  f.deps.judge = async (_m, _p, input) => { sawFollowUp = /是否追问：是/.test(input); return { decision: 'skip', reason: '谢谢' }; };
+  await investigate(cfg, new Pool(3), db, msg({ message_id: 'om_t8', chat_id: 'oc_j5', thread_id: 'omt_8', content: '谢谢' }), f.deps);
+  assert.ok(sawFollowUp, '判定知道这是追问');
+  assert.equal(f.calls.length, 1, '没接棒');
+  // 收尾：叫停它（drain 会把整个 pipeline 置成停机，后面的测试就跑不了了）
+  f.deps.judge = async () => ({ decision: 'stop', reason: '收尾' });
+  await investigate(cfg, new Pool(3), db, msg({ message_id: 'om_s8', chat_id: 'oc_j5' }), f.deps);
+  await busy;
+});
+
+test('判定挂了：按要回处理，别悄悄吞掉别人的 @', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => { emit(o, { kind: 'text', text: '答' }); return { text: '答', ok: true }; });
+  f.deps.judge = async () => { throw new Error('网关 502'); };
+  await investigate(judgedCfg('oc_j6'), new Pool(3), db, msg({ message_id: 'om_j6', chat_id: 'oc_j6' }), f.deps);
+  assert.equal(f.calls.length, 1);
+  assert.match(db.recent(1)[0].reason ?? '', /判定失败.*网关 502/);
+});
+
+test('网关 / CC settings 写成 0600 文件传路径，token 不进 argv；没配就不传', () => {
+  const cfg = testCfg('oc_gw');
+  cfg.stateDir = mkdtempSync(join(tmpdir(), 'lcr-gw-'));
+  assert.equal(claudeArgsFor(cfg, 'oc_gw').includes('--settings'), false);
+  assert.equal(existsSync(join(cfg.stateDir, 'claude-settings')), false, '没配就别写文件');
+
+  cfg.templates.t.gateway = { baseUrl: 'http://gw.local', token: 'secret-tk' };
+  const a = claudeArgsFor(cfg, 'oc_gw');
+  assert.ok(!a.join(' ').includes('secret-tk'), 'token 不能出现在 argv 里');
+  const p = a[a.indexOf('--settings') + 1];
+  assert.equal(statSync(p).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(readFileSync(p, 'utf8')).env.ANTHROPIC_AUTH_TOKEN, 'secret-tk');
+  assert.equal(claudeArgsFor(cfg, 'oc_gw')[a.indexOf('--settings') + 1], p, '同一份配置同一个文件');
+});
+
+test('判定走模板的网关', async () => {
+  const f = fake(async (o) => { emit(o, { kind: 'text', text: '答' }); return { text: '答', ok: true }; });
+  let gw: any;
+  f.deps.judge = async (_m, _p, _i, g) => { gw = g; return { decision: 'answer', reason: 'x' }; };
+  const cfg = judgedCfg('oc_jgw');
+  cfg.stateDir = mkdtempSync(join(tmpdir(), 'lcr-jgw-'));   // 配了网关就会写 --settings 文件，别写进仓库
+  cfg.templates.t.gateway = { baseUrl: 'http://gw.local', token: 'tk' };
+  await investigate(cfg, new Pool(3), tmpDb(), msg({ message_id: 'om_jgw', chat_id: 'oc_jgw' }), f.deps);
+  assert.deepEqual(gw, { baseUrl: 'http://gw.local', token: 'tk' });
+});
+
+// 放最后：drain 之后 pipeline 就是停机状态了
+test('后台终止：只掐点的那个，卡片收成「已手动停止」；没在跑的返回 false', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => { emit(o, { kind: 'tool', id: 't', name: 'Bash' }); return untilAborted(o); });
+  const cfg = testCfg('oc_web');
+  const job = investigate(cfg, new Pool(3), db, msg({ message_id: 'om_w', chat_id: 'oc_web' }), f.deps);
+  await tick();
+  assert.equal(stopJob('om_nope'), false);
+  assert.equal(stopJob('om_w'), true);
+  await job;
+  assert.equal(db.recent(1)[0].error, '后台终止');
+  assert.equal(stopJob('om_w'), false, '收完尾就不在了');
+});
+
+/* ---------- @机器人 ---------- */
+
+const BOT = { name: 'zzy测试', ids: ['cli_app', 'ou_bot_open'] };
+/** 长连接推过来的事件长这样（lark-cli 的 im.message.receive_v1） */
+const botEv = (o: Record<string, unknown> = {}) => ({
+  message_id: 'om_b', chat_id: 'oc_bg', chat_type: 'group', content: '@zzy测试 看下这个 trace',
+  mentions: [{ id: 'cli_app', name: 'zzy测试' }], sender_id: 'ou_x', sender_type: 'user', ...o,
+});
+
+test('@机器人：一收到就发卡片（不等模型开口），init 之后记上 session', async () => {
+  const db = tmpDb();
+  const cards: unknown[] = [];
+  const f = fake(async (o) => {
+    await tick();
+    assert.equal(cards.length, 1, '一个事件都还没有，卡片已经发了');
+    assert.deepEqual(cards[0], { type: 'card', data: { card_id: 'kc1' } }, '发的是 CardKit 卡片实体');
+    emit(o, { kind: 'init', sessionId: 'sb' }, { kind: 'text', text: '结论' });
+    return { text: '结论', ok: true, sessionId: 'sb' };
+  });
+  f.deps.replyCard = async (id, card) => { cards.push(card); return `card-${id}`; };
+  await onBotMessage(fullCfg('oc_x'), new Pool(3), db, botEv({ message_id: 'om_b1' }), BOT, f.deps);
+  assert.equal(f.calls.length, 1);
+  assert.doesNotMatch(JSON.stringify(f.created[0]), /"tag":"button"/, '不放按钮：按钮要另外订阅卡片回调');
+  assert.match(JSON.stringify(f.created[0]), /"streaming_mode":true/, '机器人的卡片是流式的');
+  assert.equal(db.sessionFor('card-om_b1'), 'sb', '卡片先发、session 后到，也要记上');
+  assert.equal(db.recent(1)[0].who, '张三', '事件里没名字，mget 补上');
+});
+
+test('@机器人：群里只认 @它的（@所有人 / @别人 不算），私聊每条都算，别的机器人不算，关着就不收', async () => {
+  const runs = async (ev: object, cfg = fullCfg('oc_x')) => {
+    const f = fake(async (o) => { emit(o, { kind: 'init', sessionId: 's' }); return { text: '好', ok: true }; });
+    await onBotMessage(cfg, new Pool(3), tmpDb(), ev, BOT, f.deps);
+    return f.calls.length;
+  };
+  assert.equal(await runs(botEv()), 1);
+  assert.equal(await runs(botEv({ mentions: [{ id: 'ou_bot_open' }] })), 1, 'open_id 写法也认');
+  assert.equal(await runs(botEv({ mentions: [] })), 0, '@所有人 在 mentions 里没有它');
+  assert.equal(await runs(botEv({ mentions: [{ id: 'ou_someone' }] })), 0);
+  assert.equal(await runs(botEv({ chat_type: 'p2p', mentions: [] })), 1, '私聊找它就是要它回');
+  assert.equal(await runs(botEv({ sender_type: 'bot' })), 0);
+  const off = fullCfg('oc_x'); off.bot.on = false;
+  assert.equal(await runs(botEv(), off), 0);
+
+  // 只在某个群里用：群不整类放开，只回勾了的那个；私聊关掉
+  const one = fullCfg('oc_x'); one.bot.allGroups = false; one.bot.allP2p = false; one.bot.chats = { oc_mine: '' };
+  assert.equal(await runs(botEv({ chat_id: 'oc_mine' }), one), 1);
+  assert.equal(await runs(botEv({ chat_id: 'oc_other' }), one), 0);
+  assert.equal(await runs(botEv({ chat_type: 'p2p', mentions: [] }), one), 0);
+});
+
+test('@机器人：追问不用按钮 —— 群里话题里再 @它、私聊引用它的卡片，都接着同一个 session', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => { emit(o, { kind: 'init', sessionId: 's1' }, { kind: 'text', text: '结论' }); return { text: '结论', ok: true, sessionId: 's1' }; });
+  f.deps.replyCard = async (id) => `card-${id}`;
+  f.deps.threadIdOf = async () => 'omt_b';
+  const cfg = fullCfg('oc_x');
+  await onBotMessage(cfg, new Pool(3), db, botEv({ message_id: 'om_q1' }), BOT, f.deps);
+  await onBotMessage(cfg, new Pool(3), db, botEv({ message_id: 'om_q2', thread_id: 'omt_b' }), BOT, f.deps);
+  await onBotMessage(cfg, new Pool(3), db, botEv({ message_id: 'om_q3', chat_type: 'p2p', mentions: [], reply_to: 'card-om_q1' }), BOT, f.deps);
+  assert.deepEqual(f.calls.map(resumeOf), [undefined, 's1', 's1']);
+});
+
+test('话题里 @：第一次带上整个话题（根消息起），追问只补上次之后的新消息，自己的卡片不带', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => { emit(o, { kind: 'init', sessionId: 's1' }, { kind: 'text', text: '结论' }); return { text: '结论', ok: true, sessionId: 's1' }; });
+  f.deps.replyCard = async (id) => `card-${id}`;
+  f.deps.threadIdOf = async () => 'omt_t';
+  const say = (id: string, pos: number, name: string, content: string) =>
+    msg({ message_id: id, thread_id: 'omt_t', thread_message_position: String(pos), content, sender: { id: 'ou_' + id, name, sender_type: 'user' } });
+  let topic = [
+    say('om_root', -1, '告警', '订单 123 改价失败'),
+    say('om_r0', 0, '李四', '日志：![Image](img_log)'),
+    say('om_t1', 1, '张三', '@zzy测试 看下'),
+  ];
+  f.deps.topic.list = async () => topic;
+  const cfg = fullCfg('oc_x');
+
+  await onBotMessage(cfg, new Pool(3), db, botEv({ message_id: 'om_t1', thread_id: 'omt_t' }), BOT, f.deps);
+  const p1 = f.calls[0].prompt;
+  assert.match(p1, /之前的讨论[\s\S]*订单 123 改价失败[\s\S]*李四：日志[\s\S]*这次 @你 的消息：\n@zzy测试 看下/);
+  assert.match(p1, /img_log\.jpg/, '话题里的截图也下下来');
+  assert.ok(f.calls[0].claudeArgs.includes('--add-dir'));
+
+  topic = [...topic,
+    say('card-om_t1', 2, 'zzy测试', '<card>上次的回答</card>'),
+    say('om_r3', 3, '王五', '又报了个 NPE'),
+    say('om_t2', 4, '张三', '@zzy测试 这个呢'),
+  ];
+  await onBotMessage(cfg, new Pool(3), db, botEv({ message_id: 'om_t2', thread_id: 'omt_t', content: '@zzy测试 这个呢' }), BOT, f.deps);
+  const p2 = f.calls[1].prompt;
+  assert.equal(resumeOf(f.calls[1]), 's1');
+  assert.match(p2, /上次回复之后[\s\S]*王五：又报了个 NPE/);
+  assert.doesNotMatch(p2, /订单 123|李四|上次的回答/, '看过的、自己的卡片都不再塞');
+});
+
+test('不在话题里不读话题；读话题挂了照样回', async () => {
+  const f = fake(async (o) => { emit(o, { kind: 'init', sessionId: 's' }); return { text: '好', ok: true }; });
+  let reads = 0;
+  f.deps.topic.list = async () => { reads++; throw new Error('230002'); };
+  await onBotMessage(fullCfg('oc_x'), new Pool(3), tmpDb(), botEv({ message_id: 'om_n1' }), BOT, f.deps);
+  assert.equal(reads, 0);
+  await onBotMessage(fullCfg('oc_x'), new Pool(3), tmpDb(), botEv({ message_id: 'om_n2', thread_id: 'omt_z' }), BOT, f.deps);
+  assert.equal(reads, 1);
+  assert.equal(f.calls.length, 2);
+  assert.equal(f.calls[1].prompt, '@zzy测试 看下这个 trace');
+});
+
+test('@机器人：转给我的私聊说清楚是找的机器人', async () => {
+  const f = fake(async () => { throw new Error('不该跑'); });
+  f.judge({ decision: 'ask_me', reason: '问排期' });
+  const cfg = fullCfg('oc_x'); cfg.templates.t.judge = '判一下';
+  await onBotMessage(cfg, new Pool(3), tmpDb(), botEv({ message_id: 'om_ba', chat_type: 'p2p' }), BOT, f.deps);
+  assert.match(f.dms[0], /张三 在私聊找机器人，它没回/);
+});
+
+test('停机：在跑的作业被掐掉，卡片收成「已中断」；重跑那次被掐也不多发空卡', async () => {
+  const db = tmpDb();
+  db.setSession('omt_9', 'gone');
+  const f = fake(async (o, n) => {
+    if (o.claudeArgs.includes('gone')) return { text: '', ok: false }; // 旧 session 不在了
+    if (n === 2) return untilAborted(o); // 重跑，还没出声
+    emit(o, { kind: 'tool', id: 't', name: 'Bash' });
+    return untilAborted(o);
+  });
+  const cfg = testCfg('oc_stop');
+  const rerun = investigate(cfg, new Pool(3), db, msg({ message_id: 'om_r', chat_id: 'oc_stop', thread_id: 'omt_9' }), f.deps);
+  await tick();
+  const busy = investigate(cfg, new Pool(3), db, msg({ message_id: 'om_x', chat_id: 'oc_stop' }), f.deps);
+  await tick();
+  await drain(2_000);
+  await Promise.all([rerun, busy]);
+
+  assert.deepEqual(f.replies, ['om_x'], '重跑那条一张卡都没开');
+  assert.ok(f.updates() >= 1, '收尾帧写出去了');
+  const rows = Object.fromEntries(db.recent(10).map((r) => [r.msgId, r]));
+  assert.equal(rows.om_x.error, '服务停止');
+  assert.equal(rows.om_r.error, '服务停止');
+});

@@ -1,0 +1,2333 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>lark-cc-router</title>
+<style>
+:root{
+  /* 暖色纸面 + 陶土色强调，跟 Claude 应用一个调子。两页一字不差 */
+  --bg:#F5F4EE; --surface:#FBFAF7; --sunk:#EFEDE5; --sel:#E8E5DA;
+  --ink:#262624; --ink-2:#5F5D57; --ink-3:#86847C;
+  --line:#E6E3D9; --rule:#D5D1C5; --accent:#C15F3C; --accent-w:#F5E6DE; --accent-bg:#C15F3C;
+  --run:#94660F; --run-w:#F5EBD3; --ok:#3B7046; --ok-w:#E4EEE2; --bad:#B0302A; --bad-w:#F8E3DF;
+  --skip:#6E6C65; --skip-w:#ECEAE2; --think:#6E5BAE;
+  --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei","Helvetica Neue",sans-serif;
+  /* 标题和 Claude 的回答用衬线（Claude 应用也是这么分的）。Windows 没宋体好字，中文退回雅黑而不是 SimSun */
+  --serif:"Iowan Old Style","Charter",Georgia,"Songti SC","Source Han Serif SC","Noto Serif CJK SC","Microsoft YaHei",serif;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:12px; --rs:8px; --sh:0 1px 3px rgba(38,38,36,.06);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#1F1E1C; --surface:#262624; --sunk:#1A1917; --sel:#34332F;
+  --ink:#EEECE6; --ink-2:#B7B4AA; --ink-3:#8B887F;
+  --line:#353430; --rule:#4A4843; --accent:#DB8361; --accent-w:#3B2A22; --accent-bg:#B9583A;
+  --run:#E2B460; --run-w:#30281A; --ok:#82C493; --ok-w:#1F2C22; --bad:#F2857A; --bad-w:#3A221F;
+  --skip:#A3A097; --skip-w:#2F2E2B; --think:#B7A9EC;
+  --sh:0 1px 3px rgba(0,0,0,.4);
+}}
+*{box-sizing:border-box}
+/*
+ * 类名约定：**不要有"通用单词"的裸规则**。`.top` / `.live` / `.at` 这种既是基础类又会被
+ * 当成修饰类写（`.fld.top`、`.trace.live`）的名字，一旦撞上就是整块布局静默走样 ——
+ * 踩过两次：`.fld.top` 吃到了顶栏的 height:48px，`.trace.live` 吃到了 display:flex。
+ * 顶栏叫 .topbar，连接灯叫 .conn，修饰类一律带块名前缀。
+ */
+/* 抽屉/弹窗/展开区都写了自己的 display，不加 !important 的话 hidden 属性压不住它们 */
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);
+  display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased;
+  font-variant-numeric:tabular-nums}   /* 秒数/行号/耗时都是要对齐着看的数字 */
+::selection{background:var(--accent-w);color:var(--accent)}
+/* 系统默认那条灰滚动槽放在这套颜色里太扎眼，收窄 + 用主题色 */
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--rule);border-radius:6px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--ink-3);background-clip:content-box}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;background:var(--surface);border:1px solid var(--rule);border-radius:var(--rs);
+  padding:5px 12px;color:var(--ink);transition:background .12s,border-color .12s,color .12s}
+button:hover{background:var(--sunk);border-color:var(--ink-3)}
+button:active{background:var(--sunk)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.primary{background:var(--accent-bg);border-color:var(--accent-bg);color:#fff;font-weight:600}
+button.primary:hover{background:var(--accent-bg);border-color:var(--accent-bg);color:#fff;filter:brightness(.93)}
+button.ghost{background:none;border-color:transparent;color:var(--ink-2);padding:4px 7px}
+button.ghost:hover{background:var(--sunk);color:var(--ink)}
+button.danger:hover{border-color:var(--bad);color:var(--bad)}
+button.icon{background:none;border:none;color:var(--ink-3);padding:4px 7px;font-size:15px;line-height:1}
+button.icon:hover{color:var(--ink)}
+input,select,textarea{background:var(--surface);border:1px solid var(--rule);border-radius:var(--rs);
+  padding:6px 9px;width:100%;min-width:0}
+textarea{resize:vertical;font-family:var(--mono);font-size:12.5px;line-height:1.6}
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-w)}
+input:disabled,select:disabled{background:var(--sunk);color:var(--ink-3)}
+code,.mono{font-family:var(--mono);font-size:.92em}
+.note{color:var(--ink-3);font-size:12px;margin:6px 0;line-height:1.5}
+.warn{color:var(--bad);font-size:12px}
+.row2{display:flex;align-items:center;gap:8px}
+.spacer{flex:1}
+
+/* ---------- 顶栏 ---------- */
+.topbar{flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;height:52px;
+  background:var(--bg);border-bottom:1px solid var(--line);position:relative;z-index:2}
+.brand{font:500 17px/1 var(--serif);letter-spacing:-.005em}
+.topbar button[aria-pressed=true]{background:var(--sel);border-color:var(--rule)}
+.brand b{color:var(--accent);font-weight:400;margin:0 1px}
+.conn{display:flex;align-items:center;gap:7px;color:var(--ink-2);font-size:12.5px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--bad);flex:none}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px var(--ok-w)}
+
+/* ---------- 三栏 ---------- */
+/* 左右两栏是索引（沉到灰底上），中间那栏是读正文的地方（白底）—— 长文压在灰底上累 */
+/* 左两栏能拖宽：JS 只往 .stage 上写 --w-rail / --w-mid（px），默认值走 --d-*（1180 断点下会变窄）。
+   另外各压一个占窗宽的上限，窗口缩小时右栏不会被挤没；拖动线的位置用同一套变量算，跟列边永远对齐 */
+.stage{flex:1;display:grid;min-height:0;position:relative;--d-rail:15rem;--d-mid:18rem;
+  --c-rail:min(var(--w-rail,var(--d-rail)),28vw);--c-mid:min(var(--w-mid,var(--d-mid)),34vw);
+  grid-template-columns:var(--c-rail) var(--c-mid) 1fr}
+/* 热区 9px 压在列边框上，大半落在右边那栏的内边距里（别盖住左栏的滚动条）；悬停稍等一下才亮，鼠标划过不闪 */
+.stage-grip{position:absolute;top:0;bottom:0;left:var(--c-rail);width:9px;margin-left:-3px;z-index:3;cursor:col-resize;touch-action:none;outline:none}
+.stage-grip[data-col=mid]{left:calc(var(--c-rail) + var(--c-mid))}
+.stage-grip:focus-visible{outline:none}   /* 聚焦就亮那条线，不再套一圈框 */
+.stage-grip::after{content:"";position:absolute;top:0;bottom:0;left:2px;width:3px;border-radius:2px;transition:background .15s .1s}
+.stage-grip:hover::after,.stage-grip:focus-visible::after,.stage.stage-drag .stage-grip.stage-grip-on::after{background:var(--accent);transition-delay:0s}
+.stage.stage-drag,.stage.stage-drag *{cursor:col-resize!important;user-select:none}
+.col{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--bg)}
+.col+.col{border-left:1px solid var(--line)}
+.col.main{background:var(--surface)}
+.colhead{flex:none;padding:11px 13px;border-bottom:1px solid var(--line)}
+.railfilters{display:flex;align-items:center;gap:6px;margin-top:8px}
+.chipbtn{font-size:11.5px;padding:3px 8px;border-radius:var(--rs);background:var(--surface);color:var(--ink-2)}
+.chipbtn[aria-pressed=true]{background:var(--accent-w);border-color:var(--accent);color:var(--accent);font-weight:600}
+.railfilters .seg{flex:1;justify-content:stretch}
+.railfilters .seg button{flex:1;padding:3px 0;text-align:center}
+.railfilters .seg button[aria-pressed=true]{background:var(--sel);color:var(--ink);font-weight:600}
+.scroll{flex:1;overflow:auto;min-height:0}
+
+/* 群 */
+.glist{list-style:none;margin:0;padding:6px 0}
+.glist .note{padding:4px 16px}
+.grp{display:grid;grid-template-columns:28px 1fr auto;gap:9px;align-items:center;
+  padding:7px 10px;margin:1px 6px;cursor:pointer;border-radius:var(--rs);position:relative}
+.grp:hover{background:var(--sunk)}
+.grp.sel{background:var(--sel)}
+.grp:not(.on) .gtxt b{color:var(--ink-2);font-weight:500}
+.grp:not(.on) .gav{filter:grayscale(1);opacity:.55}
+.gav{width:28px;height:28px;border-radius:8px;overflow:hidden;flex:none;display:grid;place-items:center;
+  color:#fff;font-size:13px;font-weight:600;background:#A39E93}
+.gav img{width:100%;height:100%;object-fit:cover;display:block}
+.gav.big{width:40px;height:40px;border-radius:10px;font-size:18px}
+.gtxt{min-width:0}
+.gtxt b{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gtxt small{display:block;color:var(--ink-3);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gbadge{display:flex;gap:4px;align-items:center}
+.gbadge i{font-style:normal;font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:6px;background:var(--run-w);color:var(--run)}
+.gbadge i.bad{background:var(--bad-w);color:var(--bad)}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--run);flex:none}
+
+/* 中栏 */
+.ghead{padding:14px 16px;border-bottom:1px solid var(--line);background:var(--bg)}
+.ghead .row2{gap:10px}
+.ghead h2{margin:0;font:500 17px/1.3 var(--serif);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ghead .sub{display:flex;align-items:center;gap:4px;color:var(--ink-3);font-size:12px;margin-top:2px;min-width:0}
+.ghead .sub>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ghead .sub>.hinfo-bad{flex:none}
+.gsum{margin-top:9px;display:flex;flex-wrap:wrap;gap:5px}
+.jfilter{margin-top:9px;width:fit-content}
+.tag{font-size:11px;padding:1px 8px;border-radius:6px;background:var(--skip-w);color:var(--skip);max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag.off{background:var(--bad-w);color:var(--bad)}
+
+.jobs{list-style:none;margin:0;padding:6px 0}
+.jobs li{padding:11px 14px;margin:2px 8px;border:1px solid transparent;border-radius:var(--r);cursor:pointer;position:relative}
+.jobs li:hover{background:var(--sunk)}
+.jobs li.sel{background:var(--surface);border-color:var(--line);box-shadow:var(--sh)}
+.jline{display:flex;align-items:center;gap:8px}
+.jtime{margin-left:auto;color:var(--ink-3);font:11px var(--mono)}
+.jq{margin:6px 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  line-height:1.45;font-size:13.5px}
+.jmeta{color:var(--ink-3);font-size:11.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.pill{font-size:11px;font-weight:600;padding:1.5px 8px;border-radius:6px;background:var(--skip-w);color:var(--skip);flex:none}
+.pill.running{background:var(--run-w);color:var(--run)}
+.pill.done{background:var(--ok-w);color:var(--ok)}
+.pill.failed{background:var(--bad-w);color:var(--bad)}
+/* 空列表别用普通条目的样式（它还能 hover、还有手型），单独一套 */
+.jobs li.jempty{padding:34px 22px;text-align:center;cursor:default;border-bottom:none}
+.jobs li.jempty:hover{background:none}
+.je-t{font-size:13px;color:var(--ink-2)}
+.je-s{font-size:11.5px;color:var(--ink-3);margin-top:5px;line-height:1.5}
+
+/* 右栏详情 */
+.main{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--bg)}
+.dhead{flex:none;background:var(--surface);border-bottom:1px solid var(--line);padding:18px 24px 0}
+.dhead h2{margin:0 0 4px;font:500 21px/1.3 var(--serif);letter-spacing:-.005em}
+.dmeta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--ink-3);font-size:12.5px}
+/* 头部的「详情」：项目全路径、网关、模型、会话 ID 这些不常看的收在这里，点开是一张小 kv 表 */
+button.hinfo-btn{font-size:12px;padding:0 5px;color:var(--ink-3);flex:none}
+button.hinfo-btn::after{content:" ▾"}
+button.hinfo-btn[aria-expanded=true]::after{content:" ▴"}
+.kv.hinfo{width:fit-content;max-width:100%;margin-top:8px;padding:8px 11px;background:var(--sunk);border-radius:var(--rs);
+  grid-template-columns:auto 1fr;gap:3px 12px;font-size:12px}
+.kv.hinfo dd{font-size:11.5px}
+.hinfo-bad{color:var(--bad)}
+.toolbar{display:flex;align-items:center;gap:8px;margin:12px 0 0}
+.tabs{display:flex;gap:2px}
+.tabs button{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;
+  color:var(--ink-3);padding:6px 10px;font-weight:600;font-size:13px}
+.tabs button:hover{color:var(--ink)}
+.tabs button[aria-selected=true]{color:var(--accent);border-bottom-color:var(--accent)}
+.seg{display:flex;border:1px solid var(--rule);border-radius:var(--rs);overflow:hidden}
+.seg button{border:none;border-radius:0;background:none;color:var(--ink-3);padding:4px 9px;font-size:12px}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button[aria-pressed=true]{background:var(--sel);color:var(--ink);font-weight:600}
+.dbody{flex:1;overflow:auto;padding:22px 24px 60px;min-height:0}
+.empty{margin:12vh auto 0;max-width:32rem;text-align:center;color:var(--ink-3)}
+.empty .big{font:400 30px/1.3 var(--serif);color:var(--ink);letter-spacing:-.01em;margin-bottom:14px}
+.empty .big .hl{color:var(--accent)}
+
+/*
+ * 时间轴。这条流的主轴就是"第几秒发生了什么"，所以时间戳和耗时都按列对齐 ——
+ * 右边那一列秒数竖着扫下来是能比的，散在行尾就不是了。
+ */
+.trace{position:relative;padding-left:78px;max-width:54rem}
+.trace::before{content:"";position:absolute;left:59px;top:9px;bottom:9px;width:2px;
+  background:var(--line);border-radius:2px}
+.trace.running::before{background:linear-gradient(180deg,var(--accent),var(--accent-w))}
+.ev{position:relative;margin:0 0 15px}
+/* 正文是这条流的产出，跟前面那堆工具调用拉开一点 */
+.ev.text{margin-top:24px}
+.ev::before{content:"";position:absolute;left:-23.5px;top:6px;width:11px;height:11px;border-radius:50%;
+  background:var(--surface);border:2px solid var(--rule)}
+.ev.tool::before{border-color:var(--accent)}
+.ev.thinking::before{border-color:var(--think)}
+.ev.result::before{border-color:var(--ink-3)}
+.ev.text::before{border-color:var(--ok);background:var(--ok)}
+.ev.done::before{border-color:var(--ink);background:var(--ink)}
+/* 开头那条不是"发生了什么"，是"这轮从这儿开始"—— 轴上给一道短横，不给圆点 */
+.ev.init::before{width:8px;height:2px;left:-22px;top:10px;border:none;border-radius:1px;background:var(--rule)}
+.ev.init{color:var(--ink-3);font-family:var(--mono);font-size:12px}
+.at{position:absolute;left:-78px;top:2px;width:52px;text-align:right;font:11px var(--mono);color:var(--ink-3)}
+.evhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);flex:none}
+.ev.tool .chip{background:var(--accent-w);border-radius:var(--rs);padding:1.5px 7px}
+.chip.err{color:var(--bad)}
+.ev.tool .chip.err{background:var(--bad-w)}
+/* 单行截断，不折行 —— 折出来的第二行挂着半截路径比截断还难认；全文都在下面的折叠里 */
+.arg{font-family:var(--mono);font-size:12px;color:var(--ink-2);flex:0 1 auto;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dur{margin-left:auto;font:11px var(--mono);color:var(--ink-3);flex:none}
+/* 工具返回挂在发起它的那次调用底下：一次调用 + 一次返回是一件事，摆成两行就是八行 */
+.evres{margin-top:7px;padding-left:11px;border-left:2px solid var(--rule)}
+.evres .chip{color:var(--ink-3);font-weight:400;background:none;padding:0}
+/*
+ * markdown 块。事件流的正文/思考、卡片预览都往这里塞；解析交给 marked（/vendor/marked.js），
+ * 这里只负责把它的输出收拾成我们这两处的观感。
+ */
+.md{word-break:break-word}
+.ev.text .md,.ev.done .md{font-family:var(--serif);font-size:15px;line-height:1.75}
+.ev.text .md code,.ev.done .md code{font-size:.85em}
+.md>*{margin:0}
+.md>*+*{margin-top:10px}
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{font-size:14px;font-weight:600;line-height:1.4}
+.ev.text .md :is(h1,h2,h3,h4),.ev.done .md :is(h1,h2,h3,h4){font-weight:500}
+/* 一级标题当分节线用：一份长结论里"这又是新的一节了"得看得出来 */
+.md h1,.md h2{margin-top:24px;padding-top:15px;border-top:1px solid var(--line)}
+.md h3{margin-top:18px}
+.md>*:first-child{margin-top:0;padding-top:0;border-top:none}
+.md h1{font-size:18px}
+.md h2{font-size:16px}
+.md ul,.md ol{padding-left:22px}
+.md li+li{margin-top:3px}
+.md li>ul,.md li>ol{margin-top:3px}
+.md li>p{margin:0}          /* 松散列表 marked 会给 li 套 <p>，别让它撑开行距 */
+/* 引用/单元格里 marked 也会套 <p>，那个 1em 的默认外边距能把一小段撑成一大块 */
+.md blockquote p,.md li p,.md td p,.md th p{margin:0}
+.md blockquote{padding-left:11px;border-left:3px solid var(--rule);color:var(--ink-2)}
+.md hr{border:none;border-top:1px solid var(--line)}
+.md a{color:var(--accent)}
+/* pre 里的 code 不该再套一层行内代码的底和边距 */
+.md pre code{font-size:inherit;background:none;padding:0}
+.md table{border-collapse:collapse;font-size:13px;display:block;overflow:auto;max-width:100%}
+.md th,.md td{border:1px solid var(--line);padding:5px 11px;text-align:left;vertical-align:top}
+.md th{background:var(--sunk);font-weight:600}
+.md del{color:var(--ink-3)}
+.md img{max-width:100%}
+.think{color:var(--think);font-style:italic;border-left:2px solid var(--think);padding-left:10px;opacity:.9}
+.evsub{color:var(--ink-3);font-size:12px;font-family:var(--mono)}
+.ev details{margin-top:5px}
+.ev summary{color:var(--ink-3);font-size:12px;cursor:pointer;width:fit-content}
+.ev summary:hover{color:var(--accent)}
+pre{margin:6px 0 0;padding:9px 11px;background:var(--sunk);border:1px solid var(--line);border-radius:var(--rs);
+  font:12.5px/1.55 var(--mono);color:var(--ink-2);overflow:auto;max-height:360px;white-space:pre-wrap;word-break:break-word}
+.ev.hide{display:none}
+.summary{display:flex;gap:14px;align-items:center;flex-wrap:wrap;color:var(--ink-3);font-size:12px;
+  margin:24px 0 0;padding-top:14px;border-top:1px solid var(--line);max-width:54rem}
+.summary b{color:var(--ink-2);font-weight:600;font-family:var(--mono)}
+.summary code{background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--ink-2)}
+
+/* 飞书卡片预览（永远浅色：真卡片就是浅的） */
+.chatbg{background:#F2F3F5;border-radius:var(--r);padding:22px;max-width:44rem}
+.fcard{background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.09);
+  color:#1F2329;font-size:14px;line-height:1.6}
+.fh{padding:12px 16px;color:#fff}
+.fh-t{font-size:16px;font-weight:600;line-height:1.35}
+.fh-s{font-size:12px;opacity:.85;margin-top:2px}
+.fb{padding:14px 16px}
+.fb>*+*{margin-top:12px}
+.fb blockquote{margin:0;padding:7px 11px;border-left:3px solid #DEE0E3;background:#F7F8FA;color:#646A73;
+  border-radius:0 4px 4px 0;white-space:pre-wrap}
+.fb pre{margin:0;background:#F5F6F7;border:none;color:#1F2329;border-radius:4px;padding:9px 11px}
+.fb code{background:#F0F1F2;border-radius:3px;padding:1px 4px}
+/* 卡片永远是浅色，md 块里那几个用 CSS 变量的边框得换成固定色 */
+.fb .md a{color:#3370FF}
+.fb .md hr{border-top-color:#DEE0E3}
+.fb .md th,.fb .md td{border-color:#DEE0E3}
+.fb .md th{background:#F5F6F7}
+.fpanel{border:1px solid #DEE0E3;border-radius:6px;overflow:hidden}
+.fpanel>summary{background:#F7F8FA;padding:9px 12px;font-size:13px;color:#1F2329;cursor:pointer;list-style:none}
+.fpanel>summary::-webkit-details-marker{display:none}
+.fpanel>summary::before{content:"▸ ";color:#8F959E}
+.fpanel[open]>summary::before{content:"▾ "}
+.fpanel .fbody{padding:12px;border-top:1px solid #DEE0E3}
+.fpanel .fbody>*+*{margin-top:10px}
+.fraw{margin-top:14px;max-width:44rem}
+
+/* 弹窗（试跑） */
+.scrim{position:fixed;inset:0;background:rgba(31,30,28,.4);z-index:40}
+.fld{display:grid;grid-template-columns:8.5rem 1fr;gap:12px;align-items:center;margin:8px 0}
+.fld>span{color:var(--ink-2);font-size:13px}
+.fld select{max-width:20rem}
+.modal{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-start;justify-content:center;
+  padding:8vh 16px;overflow:auto}
+.sheet{background:var(--bg);border-radius:16px;width:min(680px,100%);box-shadow:0 12px 44px rgba(31,30,28,.22);
+  display:flex;flex-direction:column;overflow:hidden}
+.sheet>header{display:flex;align-items:center;gap:10px;padding:0 18px;min-height:56px;
+  background:var(--surface);border-bottom:1px solid var(--line)}
+.sheet>header h2{margin:0;font:500 19px/1.3 var(--serif)}
+.sheet>.sbody{padding:16px 18px;display:grid;gap:10px}
+.sheet>.sfoot{display:flex;align-items:center;gap:12px;padding:12px 18px;background:var(--surface);
+  border-top:1px solid var(--line)}
+.echo{background:var(--sunk);border:1px solid var(--line);border-radius:var(--rs);padding:9px 11px;
+  font-size:12px;color:var(--ink-2);display:grid;gap:3px}
+.echo b{color:var(--ink);font-weight:600}
+.echo .no{color:var(--bad)}
+
+/*
+ * 设置：左边「常规 / Claude Code / @我 / @机器人」+ 模板列表，右边编辑，底下保存条。
+ * 标签一律在上、控件撑满所在格子 —— 左标签右控件那种排法，标签列一宽控件就被挤得长短不齐。
+ */
+/* 设置是整页视图（像 Claude 桌面版的设置）：顶栏留着，下面整块换成 左导航 | 右内容 */
+.setpage{flex:1;display:grid;grid-template-columns:15rem 1fr;min-height:0;background:var(--surface)}
+.setnav{background:var(--bg);border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:1px;overflow:auto}
+.navtitle{font:500 22px/1.3 var(--serif);padding:6px 10px 14px}
+.navback{border:none;background:none;color:var(--ink-2);text-align:left;padding:6px 10px;font-size:13px;width:fit-content;border-radius:var(--rs)}
+.navback:hover{background:var(--sunk);color:var(--ink);border:none}
+.setnav h4{margin:18px 10px 6px;font-size:11px;font-weight:600;color:var(--ink-3);letter-spacing:.06em}
+.navi{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;
+  padding:7px 10px;border-radius:var(--rs);color:var(--ink-2);font-size:13.5px}
+.navi:hover{background:var(--sunk);color:var(--ink)}
+.navi[aria-current=true]{background:var(--sel);color:var(--ink);font-weight:600}
+.navi .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.navi .nm.dirty::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--run);
+  margin-left:7px;vertical-align:middle}
+.navi small{color:var(--ink-3);font-size:11px;font-weight:400;flex:none}
+.navadd{border:none;background:none;color:var(--ink-3);text-align:left;padding:7px 10px;font-size:13px;margin-top:4px}
+.navadd:hover{color:var(--accent);background:none}
+.setpane{display:flex;flex-direction:column;min-width:0;min-height:0}
+.sethead,.setbody,.setfoot{padding-left:40px;padding-right:max(40px,calc(100% - 40px - 46rem))}
+.sethead{flex:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:26px;padding-bottom:6px;border-bottom:1px solid transparent}
+.sethead.is-scrolled{border-bottom-color:var(--line)}   /* 内容滚到头底下了才出一道线 */
+.sethead h2{margin:0;font:500 26px/1.3 var(--serif)}
+.ptitle{font:500 26px/1.3 var(--serif);border-color:transparent;padding:3px 8px;margin-left:-9px;
+  min-width:4em;max-width:18rem;background:none}
+.ptitle:hover{border-color:var(--rule)}
+.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--accent-w);color:var(--accent);flex:none}
+.pmeta{color:var(--ink-3);font-size:12.5px;white-space:nowrap}
+.setbody{flex:1;overflow:auto;padding-top:0;padding-bottom:40px;min-height:0}
+.setbody.is-frame{padding:0;overflow:hidden}
+.envframe{display:block;width:100%;height:100%;border:0}
+.blk{padding:22px 0;border-bottom:1px solid var(--line);max-width:46rem}
+.blk:last-of-type{border-bottom:none}
+.blk.blk-danger{margin-top:28px;padding:18px 20px;border:1px solid var(--line);border-radius:var(--r)}
+.blk-danger:not(.is-off) .blkh h3{color:var(--bad)}
+button.danger{color:var(--bad)}
+/* 项目：输入框 + 下拉菜单（工作区 / 选择文件夹…），手填也行 */
+.pick{position:relative;display:flex;gap:6px;min-width:0}
+.pick>input{flex:1}
+.pick>button{flex:none;padding:0 10px}
+.pick-menu{position:absolute;z-index:30;top:calc(100% + 4px);left:0;right:0;max-height:320px;overflow:auto;padding:6px;
+  background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);box-shadow:0 8px 28px rgba(31,30,28,.14)}
+.pick-h{font-size:11.5px;font-weight:600;color:var(--ink-3);padding:8px 10px 4px}
+.pick-it{display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;border:none;background:none;padding:7px 10px;border-radius:var(--rs);min-width:0}
+.pick-it:hover,.pick-it.is-hl{background:var(--sunk);border:none}
+.pick-it b{font-weight:600;flex:none}
+.pick-it small{font:11.5px var(--mono);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pick-it span{font:12.5px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pick-it.is-cur b::after,.pick-it.is-cur span::after{content:" ✓";color:var(--accent)}
+.pick-act{border-top:1px solid var(--line);margin-top:4px;padding-top:4px;position:sticky;bottom:-6px;background:var(--surface);padding-bottom:2px}
+.pick-act .pick-it{color:var(--accent)}
+.pick-none{padding:8px 10px;font-size:12.5px;color:var(--ink-3)}
+.hint a{color:var(--accent)}
+.blkh{display:flex;align-items:center;gap:10px;min-height:22px}
+.blkh h3{margin:0;font:600 15px/1.4 var(--sans)}
+.blkh+.hint{margin:4px 0 0}
+.blk>.hint+*,.blkh+*:not(.hint){margin-top:14px}
+.hint{color:var(--ink-3);font-size:12px;line-height:1.55;margin:6px 0 0}
+.hint.bad{color:var(--bad)}
+.hint.ok{color:var(--ok)}
+.fi{display:flex;flex-direction:column;gap:6px;min-width:0;margin:0}
+.fi+.fi,.grid2+.fi,.fi+.grid2,.grid2+.grid2,.advbody>*+*:not(.hint){margin-top:16px}
+.grid2>.fi{margin-top:0}
+.hint:empty{display:none}
+.lb{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px 18px}
+.setbody input:not([type=checkbox]),.setbody select{height:34px}
+.setbody textarea{min-height:120px}
+textarea.prose{font-family:var(--sans);font-size:13px;line-height:1.7;padding:9px 11px}
+.seg2{display:inline-flex;padding:3px;gap:3px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;width:fit-content}
+.seg2 button{border:none;background:none;padding:5px 16px;border-radius:7px;color:var(--ink-2);font-size:13px}
+.seg2 button:hover{color:var(--ink);background:none}
+.seg2 button[aria-pressed=true]{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:var(--sh)}
+.switch{position:relative;display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;color:var(--ink-2);
+  user-select:none;min-height:28px;width:fit-content}
+.switch input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.knob{width:34px;height:20px;border-radius:10px;background:var(--rule);position:relative;flex:none;transition:background .15s}
+.knob::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.switch input:checked+.knob{background:var(--accent-bg)}
+.switch input:checked+.knob::after{transform:translateX(14px)}
+.switch input:focus-visible+.knob{outline:2px solid var(--accent);outline-offset:2px}
+.fi .switch{min-height:34px}
+.adv{margin-top:8px;border:1px solid var(--line);border-radius:var(--r);max-width:46rem}
+.adv>summary{list-style:none;cursor:pointer;padding:13px 16px;display:flex;align-items:baseline;gap:12px;font-size:14px;font-weight:600}
+.adv>summary::-webkit-details-marker{display:none}
+.adv>summary::before{content:"▸";color:var(--ink-3);font-size:11px;width:8px}
+.adv[open]>summary::before{content:"▾"}
+.adv>summary small{color:var(--ink-3);font-weight:400;font-size:12px}
+.advbody{padding:16px 16px 20px;border-top:1px solid var(--line)}
+.setfoot{flex:none;display:flex;align-items:center;gap:10px;padding-top:12px;padding-bottom:12px;border-top:1px solid var(--line)}
+.setfoot .dirty{color:var(--run);font-size:12.5px;font-weight:600}
+.setfoot .note,.setfoot .warn{margin:0;font-size:12.5px}
+.kv{display:grid;grid-template-columns:5rem 1fr;gap:8px 12px;margin:0;font-size:13px}
+.kv dt{color:var(--ink-3)}
+.kv dd{margin:0;font-family:var(--mono);font-size:12.5px;word-break:break-all}
+button.link{border:none;background:none;padding:0;color:var(--accent);font-size:12.5px}
+button.link:hover{text-decoration:underline;background:none}
+.inrow{display:flex;gap:8px;align-items:center}
+.inrow input{flex:1}
+/* 会话头上那排：自动回开关 + 模板 */
+/* 栏窄的时候「模板下拉 + 编辑」整块折到第二行，不再被挤成两个字；把中栏拖宽就回到一行 */
+.chatctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:10px}
+.chatctl .switch{white-space:nowrap;flex:none}
+.chatctl-tpl{display:flex;align-items:center;gap:8px;flex:1 1 11rem;min-width:0}
+.chatctl select{flex:1;min-width:0;height:28px;padding:2px 6px;font-size:12.5px}
+.chatctl button{flex:none;padding:3px 7px}
+.chatctl .warn{font-size:11.5px;flex-basis:100%}
+.chatctl .warn:empty{display:none}
+/* 顶栏「设置」上的小圆点：有 MCP 要重新授权 */
+.topbar button.has-dot{position:relative}
+.topbar button.has-dot::after{content:"";position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 0 2px var(--bg)}
+.navi .navcount{flex:none;min-width:18px;padding:0 5px;border-radius:9px;background:var(--accent-bg);color:#fff;
+  font-size:11px;font-weight:600;line-height:18px;text-align:center}
+/* Claude Code 页：一行一项（名字 + 小字 | 操作），状态 / 报错在下面整行 */
+.ccbanner{margin:18px 0 0;padding:10px 14px;border-radius:var(--rs);background:var(--accent-w);color:var(--accent);font-size:13px;max-width:46rem}
+.cclist{margin-top:10px}
+.ccrow{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 12px;padding:10px 0;border-top:1px solid var(--line)}
+.ccrow:first-child{border-top:none}
+.ccrow>.hint{grid-column:1/-1;margin:0}
+.cctxt{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;min-width:0}
+.cctxt b{font-weight:600}
+.cctxt small{color:var(--ink-3);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:100%}
+.cctxt .ccdesc{flex-basis:100%;color:var(--ink-2);font-size:12px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ccacts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.ccacts button{padding:3px 10px;font-size:12.5px}
+.ccbusy{color:var(--run);font-size:12px}
+.ccst{font-size:11px;font-weight:600;padding:1px 7px;border-radius:6px;flex:none}
+.ccst.ok{background:var(--ok-w);color:var(--ok)}
+.ccst.missing{background:var(--accent-w);color:var(--accent)}
+.ccst.error{background:var(--bad-w);color:var(--bad)}
+.ccst.running{background:var(--skip-w);color:var(--skip)}
+.ccgrp{margin:16px 0 0;font-size:12px;font-weight:600;color:var(--ink-3)}
+.ccgrp+.cclist{margin-top:4px}
+.ccadd{margin-top:14px}
+/* 可装的插件：目录里几千个，搜出来的放进自己的滚动框，别把下面的 Skill / 市场挤到底 */
+.ccavail{max-height:340px;overflow:auto;margin-top:8px;padding:0 12px;border:1px solid var(--line);border-radius:var(--rs);background:var(--bg)}
+.ccavail>.hint{padding:10px 0;margin:0}
+
+@media(max-width:1180px){
+  .stage{--d-rail:13rem;--d-mid:15rem}
+}
+@media(max-width:980px){
+  .stage{grid-template-columns:13rem 1fr;grid-template-rows:auto 1fr}
+  .stage-grip{display:none}
+  .col.mid{grid-column:2;grid-row:1;max-height:42vh;border-left:none;border-bottom:1px solid var(--line)}
+  .col.main{grid-column:2;grid-row:2}
+  .fld{grid-template-columns:1fr}
+  .setpage{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .setnav{flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line);padding:8px}
+  .setnav h4,.navtitle{display:none}
+  .sethead,.setbody,.setfoot{padding-left:20px;padding-right:20px}
+  .navi{width:auto}
+  .grid2{grid-template-columns:1fr}
+}
+@media(max-width:700px){
+  .stage{grid-template-columns:1fr;grid-template-rows:auto auto 1fr}
+  .col.rail{grid-row:1;max-height:30vh;border-bottom:1px solid var(--line)}
+  .col.mid{grid-column:1;grid-row:2;max-height:32vh}
+  .col.main{grid-column:1;grid-row:3}
+  .trace{padding-left:52px}.trace::before{left:37px}.ev::before{left:-19px}.at{display:none}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="brand">lark<b>·</b>cc<b>·</b>router</span>
+  <span class="conn"><span id="dot" class="dot"></span><span id="stat">连接中…</span></span>
+  <span class="spacer"></span>
+  <button id="btn-setup">上手向导</button>
+  <button id="btn-run">试跑</button>
+  <button id="btn-cfg">设置</button>
+</header>
+
+<div class="stage" id="stage">
+  <aside class="col rail">
+    <div class="colhead">
+      <input id="gsearch" placeholder="搜群 / 人…">
+      <div class="railfilters">
+        <button id="f-hasjobs" class="chipbtn" aria-pressed="false" title="只列有过作业的会话，最近的在上面">有作业的</button>
+        <div class="seg" id="gkind"></div>
+      </div>
+    </div>
+    <div class="scroll"><ul class="glist" id="groups"></ul></div>
+  </aside>
+
+  <section class="col mid">
+    <div class="ghead" id="ghead"></div>
+    <div class="scroll"><ul class="jobs" id="jobs"></ul></div>
+  </section>
+
+  <section class="col main">
+    <div class="dhead" id="dhead" hidden></div>
+    <div class="dbody" id="dbody"></div>
+  </section>
+
+  <div class="stage-grip" data-col="rail" role="separator" aria-orientation="vertical" tabindex="0"
+       aria-label="会话列表宽度" title="拖动改宽度 · 双击恢复默认"></div>
+  <div class="stage-grip" data-col="mid" role="separator" aria-orientation="vertical" tabindex="0"
+       aria-label="作业列表宽度" title="拖动改宽度 · 双击恢复默认"></div>
+</div>
+
+<div class="setpage" id="settings" role="region" aria-label="设置" hidden>
+  <nav class="setnav" id="set-nav"></nav>
+  <div class="setpane">
+    <header class="sethead" id="set-head"></header>
+    <div class="setbody" id="set-body"></div>
+    <footer class="setfoot">
+      <span id="set-stat" class="note"></span>
+      <span class="spacer"></span>
+      <button id="set-revert">撤销改动</button>
+      <button class="primary" id="set-save">保存</button>
+    </footer>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+
+<div class="modal" id="run" hidden>
+  <div class="sheet" role="dialog" aria-label="试跑">
+    <header><h2>试跑</h2><span class="spacer"></span><button class="icon" id="run-close" aria-label="关闭">✕</button></header>
+    <div class="sbody">
+      <p class="note" style="margin:0">按这个会话的配置真跑一次 Claude Code，进度进中间那栏。卡片以你的身份<b>发给你自己</b>（不进群），顺带验一下飞书这条路通不通；不占去重记录。</p>
+      <label class="fld"><span>当成哪个会话</span><select id="r-chat"></select></label>
+      <label class="fld"><span>项目</span><input id="r-proj" list="projlist"></label>
+      <div id="r-resumebox" class="note" hidden></div>
+      <textarea id="r-q" rows="4" placeholder="这个订单为什么改不了"></textarea>
+      <div class="echo" id="r-echo"></div>
+    </div>
+    <footer class="sfoot"><button class="primary" id="run-go">跑一次</button><button id="run-judge">只看判定</button><span class="note" id="run-stat" style="margin:0"></span></footer>
+  </div>
+</div>
+
+<datalist id="projlist"></datalist>
+
+<script src="/vendor/marked.js"></script>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+const STATUS_CN = { running: '处理中', done: '完成', failed: '中断', skipped: '跳过' };
+const ARG_KEYS = ['command', 'file_path', 'path', 'pattern', 'query', 'url', 'prompt', 'description', 'skill'];
+const TPL_COLOR = { blue: '#3370FF', green: '#34C724', orange: '#FF8800', red: '#F54A45', grey: '#8F959E', turquoise: '#00D6B2', violet: '#7F3BF5' };
+
+let jobs = new Map();      // id -> job（含 events）
+let cfg = null;            // 服务端当前配置（含 resolved：每个会话叠完模板后的实际值）
+let allChats = null;       // [{chatId,name,avatar,lastAt}]
+let chatsErr = '';   // /api/chats 报错（多半是飞书还没登录）：别一直显示「加载中」
+let grp = '';              // 选中的群 id；'' = 全部作业
+let sel = null, view = 'trace', filter = 'all', cardAs = '';
+let gq = '', jq = '';      // 会话搜索 / 作业搜索
+// 左栏：只看有作业的会话。入口全开（所有群 + 所有私聊）时"已启用"等于全部，筛不出东西，有没有作业才是真区别
+let gHasJobs = false;
+try { gHasJobs = localStorage.getItem('lcr.hasJobs') === '1'; } catch (e) {}
+let gKind = 'all';         // 左栏：all | group | p2p
+let jMode = 'all';         // 作业列表：all | user（@我）| bot（@机器人）。左栏的计数也跟着它
+const modeOk = (j) => jMode === 'all' || j.mode === jMode;
+
+/* ---------- 小工具 ---------- */
+const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+function argSummary(input) {
+  if (input && typeof input === 'object') {
+    for (const k of ARG_KEYS) if (typeof input[k] === 'string' && input[k]) return oneLine(input[k]).slice(0, 140);
+    try { return oneLine(JSON.stringify(input)).slice(0, 140); } catch (e) { return ''; }
+  }
+  return typeof input === 'string' ? oneLine(input).slice(0, 140) : '';
+}
+const chatOf = (id) => (allChats || []).find((c) => c.chatId === id);
+/* 两个入口。一个会话在某个入口上算开着：入口开着，而且勾了它、或者被「所有私聊 / 所有群」盖住 */
+const MODES = [['user', '@我'], ['bot', '@机器人']];
+const covered = (m, id) => { const k = chatOf(id)?.mode; return k === 'p2p' ? !!m.allP2p : k === 'group' && !!m.allGroups; };
+const onIn = (mode, id) => { const m = cfg?.[mode]; return !!m?.on && (id in m.chats || covered(m, id)); };
+const onAny = (id) => onIn('user', id) || onIn('bot', id);
+/** 这个会话在这个入口上实际用的模板；没开就是 null */
+const resolvedFor = (mode, id) => { const m = cfg?.[mode]; return m && (m.resolved?.[id] || (covered(m, id) ? m.fallback : null)); };
+const chatName = (id) => !id ? '试跑' : (chatOf(id)?.name || id);
+const projName = (p) => String(p || '').replace(/^.*\//, '') || '—';
+function dur(ms) { return ms < 950 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms / 1000) + 's'; }
+function clock(t) { return new Date(t).toLocaleTimeString('zh-CN', { hour12: false }); }
+function fullTime(t) { return new Date(t).toLocaleString('zh-CN', { hour12: false }); }
+const st = (j) => STATUS_CN[j.status] || j.status;
+/** 群头像。加载不出来（CDN 挂了、URL 过期）就退回首字色块 */
+function avatarNode(c, big) {
+  const w = el('span', 'gav' + (big ? ' big' : ''));
+  const name = c?.name || c?.chatId || '?';
+  const fallback = () => { w.textContent = [...name][0] || '?'; w.style.background = hue(c?.chatId || name); };
+  if (c?.avatar) {
+    const img = el('img'); img.src = c.avatar; img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+    img.onerror = () => { img.remove(); fallback(); };
+    w.appendChild(img);
+  } else fallback();
+  return w;
+}
+function hue(s) {
+  let h = 0;
+  for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) % 360;
+  return `hsl(${h} 28% 54%)`;   // 压低饱和度，跟暖灰底色不打架
+}
+
+/* ---------- 左列：群 ---------- */
+const isP2P = (id) => chatOf(id)?.mode === 'p2p';
+
+function renderGroups() {
+  const ul = $('groups');
+  ul.textContent = '';
+  if (gKind === 'all') ul.appendChild(groupRow({ chatId: '', name: '全部作业' }, true));
+  if (!allChats) { ul.appendChild(el('li', 'note', '会话列表加载中（要起几次 lark-cli，几秒）…')); return; }
+  if (chatsErr) ul.appendChild(el('li', 'note', '拿不到会话列表：飞书还没登录的话，去右上角「上手向导」登录'));
+
+  const known = new Set(allChats.map((c) => c.chatId));
+  // 已勾但不在列表里的（退群了之类）也列出来，否则没地方取消
+  // 有作业但掉出了飞书前 100 个活跃会话的，也补上，不然中栏有作业、左栏找不到
+  const extra = [...new Set([...Object.keys(cfg?.user.chats || {}), ...Object.keys(cfg?.bot.chats || {}), ...[...jobs.values()].map((j) => j.chatId)])]
+    .filter((id) => id && !known.has(id))
+    .map((id) => ({ chatId: id, name: id, mode: 'group' }));
+  const kw = gq.trim().toLowerCase();
+  let list = [...allChats, ...extra]
+    .filter((c) => gKind === 'all' || c.mode === gKind)
+    .filter((c) => !kw || (c.name + ' ' + c.chatId).toLowerCase().includes(kw));
+  // 只看有作业的时候按最近一条作业排，像收件箱；平时沿用飞书的活跃顺序。跟着中栏的 @我 / @机器人 走
+  if (gHasJobs) {
+    const last = new Map(list.map((c) => [c.chatId, stats(c.chatId).last]));
+    list = list.filter((c) => last.get(c.chatId)).sort((a, b) => last.get(b.chatId) - last.get(a.chatId));
+  }
+  for (const c of list) ul.appendChild(groupRow(c, false));
+  if (!list.length) ul.appendChild(el('li', 'note', allChats.length ? '没有匹配的' : ''));
+}
+
+function groupRow(c, isAll) {
+  const on = isAll || onAny(c.chatId);
+  const li = el('li', 'grp' + (on ? ' on' : '') + (grp === c.chatId ? ' sel' : ''));
+  li.append(isAll ? el('span', 'gav', '全') : avatarNode(c));
+
+  const txt = el('span', 'gtxt');
+  txt.appendChild(el('b', null, c.name));
+  // 栏窄，年份省掉；没时间就退回"处理过几条"。单聊标出来，不然跟群混在一起分不清
+  const n = stats(c.chatId).total;
+  const when = c.lastAt ? String(c.lastAt).replace(/^\d{4}-/, '') : '';
+  const bits = [];
+  if (!isAll && c.mode === 'p2p') bits.push('私聊');
+  if (when) bits.push(when);
+  else if (n) bits.push(`处理过 ${n} 条`);
+  txt.appendChild(el('small', null, isAll ? '所有会话的作业' : bits.join('　')));
+  li.appendChild(txt);
+
+  const s = stats(c.chatId);
+  const badge = el('span', 'gbadge');
+  if (s.running) badge.appendChild(el('span', 'pulse'));
+  if (s.failed) badge.appendChild(el('i', 'bad', String(s.failed)));
+  li.appendChild(badge);
+
+  li.onclick = () => { grp = c.chatId; sel = null; renderGroups(); renderMid(); renderDetail(); };
+  return li;
+}
+
+/** 某个会话（或全部）的作业统计 */
+function stats(chatId) {
+  let running = 0, failed = 0, total = 0, last = 0;
+  for (const j of jobs.values()) {
+    if (j.test || !modeOk(j)) continue;
+    if (chatId && j.chatId !== chatId) continue;
+    total++;
+    last = Math.max(last, j.startedAt);
+    if (j.status === 'running') running++;
+    else if (j.status === 'failed') failed++;
+  }
+  return { running, failed, total, last };
+}
+
+/* ---------- 中列：这个会话 + 它的作业 ---------- */
+function renderMid() {
+  const head = $('ghead');
+  head.textContent = '';
+  const isAll = !grp;
+  const c = isAll ? null : (chatOf(grp) || { chatId: grp, name: grp });
+  const r = isAll ? null : (resolvedFor('user', grp) || resolvedFor('bot', grp));
+
+  const row = el('div', 'row2');
+  row.appendChild(isAll ? el('span', 'gav big', '全') : avatarNode(c, true));
+  const box = el('div'); box.style.minWidth = '0'; box.style.flex = '1';
+  box.appendChild(el('h2', null, isAll ? '全部作业' : c.name));
+  // 名字底下只留一行：私聊还是群、在哪个项目里查。模板在下面的下拉框里，不重复写；其余收进「详情」
+  const sub = el('div', 'sub');
+  let info = null;
+  if (isAll) sub.appendChild(el('span', null, MODES.filter(([k]) => cfg?.[k].on).map(([k, n]) => `${n}：${scopeText(cfg[k])}`).join('　') || '两个入口都关着'));
+  else {
+    sub.appendChild(el('span', null, [c.mode === 'p2p' ? '私聊' : '群', r?.project && `在 ${projName(r.project)} 里查`].filter(Boolean).join(' · ')));
+    if (r?.gateway && !r.gateway.hasToken) sub.append(el('span', 'hinfo-bad', '· 网关没 token'));   // 一跑就 401，不能藏
+    const [btn, dl] = infoToggle('g', [
+      ['会话 ID', c.chatId], ['项目', r?.project], ['模型', r && (r.model || '默认')],
+      ['权限', r && permLabel(r.permissionMode)], ['回复', r && (r.judge ? '先判定要不要回' : '直接回')], ['网关', r && gwText(r)],
+    ]);
+    sub.appendChild(btn); info = dl;
+  }
+  box.appendChild(sub);
+  row.appendChild(box);
+  head.appendChild(row);
+  if (info) head.appendChild(info);
+  if (!isAll) head.appendChild(chatCtl(grp));
+
+  // 按入口筛。机器人没开过、也没有它的作业的时候，这排只是噪音 —— 不显示的时候总数才单独标出来
+  const here = [...jobs.values()].filter((j) => !grp || j.chatId === grp);
+  const showSeg = cfg?.bot.on || here.some((j) => j.mode === 'bot');
+  if (isAll) {
+    const t = here.filter((j) => j.test).length;
+    const sum = el('div', 'gsum');
+    if (!showSeg) sum.append(tag(`共 ${here.length - t} 条作业`));
+    if (t) sum.append(tag(`试跑 ${t} 条`));   // 0 条的时候这个标签只是在占地方
+    if (sum.childNodes.length) head.appendChild(sum);
+  }
+  if (showSeg) {
+    const seg = el('div', 'seg jfilter');
+    seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', '按入口筛作业');
+    for (const [k, label] of [['all', '全部'], ['user', '@我'], ['bot', '@机器人']]) {
+      const n = k === 'all' ? here.length : here.filter((j) => j.mode === k).length;
+      const b = el('button', null, `${label} ${n}`);
+      b.setAttribute('aria-pressed', String(jMode === k));
+      b.onclick = () => { jMode = k; if (sel && !modeOk(jobs.get(sel) || {})) sel = null; renderGroups(); renderMid(); renderDetail(); };
+      seg.appendChild(b);
+    }
+    head.appendChild(seg);
+  }
+
+  const ul = $('jobs');
+  ul.textContent = '';
+  const list = here
+    .filter(modeOk)
+    .filter((j) => !jq || (j.q + ' ' + j.who + ' ' + chatName(j.chatId)).toLowerCase().includes(jq))
+    .sort((a, b) => b.startedAt - a.startedAt);
+  if (!list.length) {
+    const li = el('li', 'jempty');
+    li.append(
+      el('div', 'je-t', here.length ? '这个入口下没有作业' : (grp ? '这个会话还没人 @你' : '还没人 @你')),
+      el('div', 'je-s', here.length ? '换个筛选看看' : '有人 @你 或 @机器人，就会出现在这里'),
+    );
+    ul.appendChild(li);
+    return;
+  }
+  for (const j of list) {
+    const li = el('li', j.id === sel ? 'sel' : '');
+    const line = el('div', 'jline');
+    line.append(el('span', 'pill ' + j.status, st(j)), el('span', 'jtime', clock(j.startedAt)));
+    const meta = el('div', 'jmeta');
+    if (j.test) meta.append(el('span', null, '试跑'));
+    else {
+      if (j.mode === 'bot') meta.append(el('span', 'pill', '@机器人'));
+      meta.append(el('span', null, j.who));
+      // 单聊里发问的人就是会话本身，照写会得到"张三 ▸ 张三"；没项目也别挂个"▸ —"
+      const where = grp ? j.project && projName(j.project) : chatName(j.chatId);
+      if (where && where !== j.who) meta.append(el('span', null, '▸'), el('span', null, where));
+    }
+    // 只有"没发出去"才值得标出来 —— 每条都挂个"已发出"只是噪音
+    if (!j.posted) meta.append(threadChip(j));
+    li.append(line, el('div', 'jq', j.q), meta);
+    li.onclick = () => { sel = j.id; cardAs = ''; renderMid(); renderDetail(); };
+    ul.appendChild(li);
+  }
+}
+
+const tag = (text, cls) => el('span', 'tag' + (cls ? ' ' + cls : ''), text);
+
+/** 这个模板的 CC / 判定打到哪。没配 token 的网关一跑就 401 */
+const gwText = (r) => r.gateway ? r.gateway.baseUrl + (r.gateway.hasToken ? '' : '（没配 token，一跑就 401）') : (cfg?.defaultBaseUrl || '默认（跟 claude 自己的配置走）');
+
+/** 头部的「详情」按钮 + 它展开的 kv 表（空值的行不出）。开合状态存在 infoOpen 里，SSE 推一次重画一次也不会自己合上 */
+const infoOpen = { g: false, d: false };
+function infoToggle(k, pairs) {
+  pairs = pairs.filter(([, v]) => v);
+  const b = el('button', 'ghost hinfo-btn', '详情');
+  b.title = pairs.map(([t, v]) => `${t}：${v}`).join('\n');
+  const dl = el('dl', 'kv hinfo');
+  for (const [t, v] of pairs) dl.append(el('dt', null, t), el('dd', null, v));
+  const paint = () => { b.setAttribute('aria-expanded', String(infoOpen[k])); dl.hidden = !infoOpen[k]; };
+  b.onclick = () => { infoOpen[k] = !infoOpen[k]; paint(); };
+  paint();
+  return [b, dl];
+}
+
+/** 飞书那边到底有没有那张卡片 —— 闲聊是一条都不发的，得让人看出来 */
+function threadChip(j) {
+  if (j.test) return j.posted ? el('span', 'pill done', '已发给自己')
+    : el('span', 'pill' + (j.status === 'running' ? '' : ' failed'), j.status === 'running' ? '卡片发送中' : '卡片没发出');
+  if (j.posted) return el('span', 'pill done', '已发出');
+  if (j.status === 'running') return el('span', 'pill running', '还没发出 · 在看要不要回');
+  if (j.status === 'skipped') return el('span', 'pill', '没发出 · ' + (j.reason ? j.reason.split('：')[0] : '判断不用回'));
+  return el('span', 'pill failed', '没发出');
+}
+
+/* ---------- 右列：详情 ---------- */
+function renderDetail() {
+  const j = sel && jobs.get(sel);
+  $('dhead').hidden = !j;
+  const box = $('dbody');
+  box.textContent = '';
+  if (!j) {
+    box.appendChild(emptyState());
+    return;
+  }
+
+  const h = $('dhead');
+  h.textContent = '';
+  const isBot = j.mode === 'bot';
+  // 机器人的私聊不在我的会话列表里，认不出是私聊 —— 那就照群写，名字退回 id
+  const dm = !j.test && isP2P(j.chatId);
+  const whom = isBot ? '@机器人' : '@你';
+  h.appendChild(el('h2', null, j.test ? '手动试跑' : dm ? `${j.who} 在私聊里 ${whom}` : `${j.who} 在「${chatName(j.chatId)}」${whom}`));
+  // 标题底下一行：什么时候 · 私聊还是群 · 飞书那边发没发。模板、项目、网关收进「详情」
+  const meta = el('div', 'dmeta');
+  meta.append(el('span', null, fullTime(j.startedAt)), el('span', null, '·'),
+    el('span', null, j.test ? (j.chatId ? chatName(j.chatId) : '没指定会话') : dm ? '私聊' : '群'), threadChip(j));
+  // 跑过就说明当时是开着的：没单独勾的就是默认模板
+  const jm = cfg?.[isBot ? 'bot' : 'user'];
+  const rr = j.chatId && jm && (jm.resolved?.[j.chatId] || jm.fallback);
+  const [btn, dl] = infoToggle('d', [
+    ['模板', rr?.template], ['项目', j.project], ['权限', rr && permLabel(rr.permissionMode)], ['网关', rr && gwText(rr)],
+  ]);
+  h.appendChild(meta);
+  if (dl.childNodes.length) { meta.appendChild(btn); h.appendChild(dl); }
+
+  const tb = el('div', 'toolbar');
+  const tabs = el('div', 'tabs');
+  for (const [k, label] of [['trace', '事件流'], ['card', '卡片']]) {
+    const b = el('button', null, label);
+    b.setAttribute('aria-selected', String(view === k));
+    b.onclick = () => { view = k; renderDetail(); };
+    tabs.appendChild(b);
+  }
+  tb.appendChild(tabs);
+  tb.appendChild(el('span', 'spacer'));
+  if (view === 'trace' && j.events.length) tb.appendChild(filterSeg());
+  if (j.status === 'running') {
+    const stop = el('button', 'danger', '终止');
+    stop.title = '杀掉这次 CC，群里的卡片收成「已手动停止」';
+    stop.onclick = async () => {
+      if (!confirm('终止这次排查？')) return;
+      stop.disabled = true;
+      const d = await post('/api/stop', { id: j.id });
+      if (d.error) { alert(d.error); stop.disabled = false; }
+    };
+    tb.appendChild(stop);
+  }
+  const again = el('button', null, '再跑一次');
+  again.onclick = () => openRun(j);
+  tb.appendChild(again);
+  h.appendChild(tb);
+
+  if (view === 'card') return void renderCard(box, j);
+
+  if (!j.events.length) {
+    box.appendChild(el('div', 'note', j.status === 'skipped' ? (j.reason ? `判定 ${j.reason} —— 群里什么都没发。` : '判断这条不用回 —— 什么都没发出去。') : '这条是重启前的历史作业，只留了结论，逐条事件在内存里已经没了。'));
+    if (j.answer) box.appendChild(proseCard('结论', j.answer));
+    if (j.error) box.appendChild(proseCard('出错', j.error));
+    return;
+  }
+  box.appendChild(renderFlow(j));
+}
+
+function emptyState() {
+  const d = el('div', 'empty');
+  const big = el('div', 'big');
+  big.append(document.createTextNode('等一个 '), el('span', 'hl', '@我'));
+  d.appendChild(big);
+  const p = el('p', null, cfg ? '' : '连接中…');
+  // 关着的入口给个直达链接：设置 → @我 / @机器人
+  const off = (k, name) => { const a = el('button', 'link', '去打开'); a.onclick = () => openSettings(MODE_PANE[k]); p.append(`「${name}」关着，`, a, '。 '); };
+  if (cfg) {
+    if (cfg.user.on) p.append(`@我 盯着${scopeText(cfg.user)}，每 ${Math.round(cfg.pollMs / 1000)} 秒看一次：有人 @你，就自动跑一次，结论以你的身份回过去。 `); else off('user', '@我');
+    if (cfg.bot.on) p.append(`@机器人 管着${scopeText(cfg.bot)}：有人 @它 或私聊它，马上跑，机器人回流式卡片。`); else off('bot', '@机器人');
+  }
+  d.appendChild(p);
+  const b = el('button', 'primary', '手动试跑一次');
+  b.onclick = () => openRun();
+  d.appendChild(b);
+  return d;
+}
+
+function proseCard(title, text) {
+  const c = el('div', 'ev text');
+  c.appendChild(el('div', 'chip', title));
+  c.appendChild(mdNode(text));
+  return c;
+}
+
+function filterSeg() {
+  const seg = el('div', 'seg');
+  for (const [k, label] of [['all', '全部'], ['tool', '工具'], ['thinking', '思考'], ['text', '正文']]) {
+    const b = el('button', null, label);
+    b.setAttribute('aria-pressed', String(filter === k));
+    b.onclick = () => { filter = k; renderDetail(); };
+    seg.appendChild(b);
+  }
+  return seg;
+}
+
+const FILTER_KIND = { tool: ['tool', 'result'], thinking: ['thinking'], text: ['text', 'done'] };
+
+function renderFlow(j) {
+  // 修饰类要带命名空间：单独一个 `live` 会撞上顶栏那个 `.live{display:flex}`，整条时间轴会横过来
+  const flow = el('div', 'trace' + (j.status === 'running' ? ' running' : ''));
+  flow._open = new Map();
+  for (const ev of j.events) {
+    const n = evNode(ev, j.startedAt, flow._open);
+    if (n) flow.appendChild(n);   // 并进工具调用的返回没有自己的行
+  }
+  applyFilter(flow);
+  const wrap = el('div');
+  wrap.appendChild(flow);
+  wrap.appendChild(summaryOf(j, flow));
+  return wrap;
+}
+
+function applyFilter(flow) {
+  const keep = FILTER_KIND[filter];
+  for (const n of flow.children) n.classList.toggle('hide', !!keep && !keep.includes(n.dataset.kind));
+}
+
+function evNode(ev, t0, open) {
+  // 工具的返回并进发起它的那次调用里，不另起一行 —— 返回 null 让调用方别 append
+  if (ev.kind === 'result') {
+    const src = open?.get(ev.id);
+    if (src) {
+      const d = src.node.querySelector('.dur');
+      if (d && ev.t) d.textContent = dur(ev.t - src.t);
+      open.delete(ev.id);
+      src.node.appendChild(resultBody(ev, false));
+      return null;
+    }
+  }
+  const n = el('div', 'ev ' + ev.kind);
+  n.dataset.kind = ev.kind;
+  if (ev.t) n.appendChild(el('span', 'at', dur(ev.t - t0)));
+
+  if (ev.kind === 'init') {
+    n.appendChild(el('div', 'evhead', 'session ' + String(ev.sessionId || '').slice(0, 8) + (ev.model ? ' · ' + ev.model : '')));
+    if (ev.cwd) n.appendChild(el('div', 'evsub', ev.cwd));
+    // 授权过期 / 没连上的 MCP：claude 不报错照常跑，只是少了那批工具 —— 在这儿说出来
+    // pending = init 那一刻还在连，不算坏
+    const bad = (ev.mcp || []).filter((s) => s.status !== 'connected' && s.status !== 'pending');
+    const pend = (ev.mcp || []).filter((s) => s.status === 'pending').length;
+    if (bad.length) { const w = el('div', 'evsub', '⚠️ MCP 没连上：' + bad.map((s) => s.name + '（' + s.status + '）').join('、')); w.style.color = 'var(--bad)'; n.appendChild(w); }
+    if (ev.mcp) n.appendChild(el('div', 'evsub', `MCP ${ev.mcp.length - bad.length - pend}/${ev.mcp.length} 已连${pend ? ` · ${pend} 个连接中` : ''} · plugin ${(ev.plugins || []).length} 个`));
+  } else if (ev.kind === 'text') {
+    n.appendChild(mdNode(ev.text));
+  } else if (ev.kind === 'thinking') {
+    const d = el('div', 'think');
+    d.appendChild(mdNode(ev.text));
+    n.appendChild(d);
+  } else if (ev.kind === 'done') {
+    n.appendChild(el('div', 'evhead', ev.ok ? '✓ 结束' : '✗ 结束'));
+  } else if (ev.kind === 'tool') {
+    const head = el('div', 'evhead');
+    head.append(el('span', 'chip', '⚙ ' + ev.name));
+    const a = argSummary(ev.input);
+    if (a) head.append(el('span', 'arg', a));
+    head.append(el('span', 'dur', ''));
+    n.appendChild(head);
+    const d = el('details');
+    d.appendChild(el('summary', null, '入参'));
+    const pre = el('pre'); pre.textContent = JSON.stringify(ev.input, null, 2) || '';
+    d.appendChild(pre);
+    n.appendChild(d);
+    if (open) open.set(ev.id, { node: n, t: ev.t, name: ev.name });
+  } else if (ev.kind === 'result') {
+    n.appendChild(resultBody(ev, true));   // 没配到发起方（事件被截断），单独摆一行
+  }
+  return n;
+}
+
+/** 一次工具返回。orphan = 没配到发起它的那次调用（事件被截断），得自己带个标题 */
+function resultBody(ev, orphan) {
+  const box = el('div', orphan ? null : 'evres');
+  const head = el('div', 'evhead');
+  head.append(el('span', 'chip' + (ev.isError ? ' err' : ''), orphan ? (ev.isError ? '❌ 返回' : '↳ 返回') : '↳'));
+  const first = (ev.text || '').split('\n').find((l) => l.trim());
+  if (first) head.append(el('span', 'arg', oneLine(first).slice(0, 160)));
+  const d = el('details');
+  d.appendChild(el('summary', null, '返回原文'));
+  const pre = el('pre'); pre.textContent = (ev.text || '').slice(0, 20000);
+  d.appendChild(pre);
+  box.append(head, d);
+  return box;
+}
+
+function summaryOf(j, flow) {
+  const s = el('div', 'summary');
+  const tools = j.events.filter((e) => e.kind === 'tool').length;
+  const end = j.endedAt || Date.now();
+  s.append(
+    el('span', null, '状态 '), el('b', null, st(j)),
+    el('span', null, '耗时 '), el('b', null, dur(end - j.startedAt)),
+    el('span', null, '工具 '), el('b', null, String(tools)),
+  );
+  if (j.reason) { const r = el('span', null, '判定 ' + j.reason); r.title = j.reason; s.append(r); }
+  // 重启后的历史作业没有事件了，session 走库里落的那份
+  const session = j.events.find((e) => e.kind === 'init')?.sessionId || j.session;
+  if (session) {
+    const c = el('code', null, session);
+    c.title = '点一下复制 —— 可以 claude --resume 它接着问';
+    c.style.cursor = 'pointer';
+    c.onclick = () => copy(session, c);
+    s.append(el('span', null, 'session '), c);
+    const b = el('button', 'ghost', '接着问');
+    b.onclick = () => openRun(j, session);
+    s.append(b);
+  }
+  return s;
+}
+
+function copy(text, node) {
+  navigator.clipboard?.writeText(text).then(() => {
+    const old = node.textContent;
+    node.textContent = '已复制';
+    setTimeout(() => { node.textContent = old; }, 900);
+  }).catch(() => {});
+}
+
+/* ---------- 卡片预览 ---------- */
+async function renderCard(box, j) {
+  const bar = el('div', 'toolbar'); bar.style.margin = '0 0 14px';
+  const seg = el('div', 'seg');
+  for (const [k, label] of [['', '当前状态'], ['running', '进行中'], ['done', '已完成']]) {
+    const b = el('button', null, label);
+    b.setAttribute('aria-pressed', String(cardAs === k));
+    b.onclick = () => { cardAs = k; renderDetail(); };
+    seg.appendChild(b);
+  }
+  bar.appendChild(seg);
+  box.appendChild(bar);
+
+  let data;
+  try {
+    const r = await fetch('/api/card/' + encodeURIComponent(j.id) + (cardAs ? '?as=' + cardAs : ''));
+    data = await r.json();
+    if (!r.ok) throw new Error(data.error || '拉不到卡片');
+  } catch (e) {
+    box.appendChild(el('div', 'warn', '拉不到卡片：' + e.message));
+    return;
+  }
+  if (view !== 'card' || sel !== j.id) return;   // 期间切走了
+
+  // 没发出去又是判了不回的，压根没有卡片 —— 那三个态切换也没意义
+  if (!data.posted && data.status === 'skipped') {
+    bar.remove();
+    box.appendChild(el('div', 'note', '这条判了不用回，什么都没发出去 —— 没有卡片可看。'));
+    return;
+  }
+  if (!data.posted) {
+    box.appendChild(el('div', 'note', '还没发出去：判明这条确实要回才会发。下面是它现在攒着的样子。'));
+  }
+
+  const stage = el('div', 'chatbg');
+  stage.appendChild(feishuCard(data.card));
+  box.appendChild(stage);
+
+  box.appendChild(el('p', 'note', data.posted
+    ? '这就是发出去的那张卡片（近似预览，真机字体和间距会有出入）。'
+    : '上面这张还在本地攒着，暂时看不到。'));
+
+  const raw = el('details', 'fraw');
+  raw.appendChild(el('summary', null, '卡片 JSON（更新接口发的就是它）'));
+  const pre = el('pre'); pre.textContent = JSON.stringify(data.card, null, 2);
+  raw.appendChild(pre);
+  box.appendChild(raw);
+}
+
+function feishuCard(card) {
+  const c = el('div', 'fcard');
+  const h = el('div', 'fh');
+  h.style.background = TPL_COLOR[card?.header?.template] || TPL_COLOR.grey;
+  h.append(el('div', 'fh-t', card?.header?.title?.content || ''), el('div', 'fh-s', card?.header?.subtitle?.content || ''));
+  const b = el('div', 'fb');
+  for (const e of card?.body?.elements || []) {
+    if (e.tag === 'markdown') b.appendChild(mdNode(e.content, e.text_size));
+    else if (e.tag === 'collapsible_panel') {
+      const d = el('details', 'fpanel');
+      if (e.expanded) d.open = true;
+      d.appendChild(el('summary', null, e.header?.title?.content || ''));
+      const inner = el('div', 'fbody');
+      for (const x of e.elements || []) if (x.tag === 'markdown') inner.appendChild(mdNode(x.content, x.text_size));
+      d.appendChild(inner);
+      b.appendChild(d);
+    }
+  }
+  c.append(h, b);
+  return c;
+}
+
+/** 卡片里我们自己发的这几个标签，预览得照原样渲染 —— 同时也是唯一放行的裸 HTML */
+const TAG_MAP = { grey: '#8F959E', red: '#F54A45', blue: '#3370FF', green: '#34C724', orange: '#FF8800' };
+function cardTag(t) {
+  let m = /^<font color='([\w-]+)'>$/.exec(t);
+  if (m) return `<span style="color:${TAG_MAP[m[1]] || TAG_MAP.grey}">`;
+  if (t === '</font>') return '</span>';
+  m = /^<text_tag color='([\w-]+)'>$/.exec(t);
+  if (m) {
+    const c = m[1] === 'red' ? '#F54A45' : '#646A73';
+    const bg = m[1] === 'red' ? '#FBE7E5' : '#F0F1F2';
+    return `<span style="background:${bg};color:${c};border-radius:3px;padding:0 5px;font-size:12px">`;
+  }
+  if (t === '</text_tag>') return '</span>';
+  return '';
+}
+/*
+ * marked 的浏览器构建由 /vendor/marked.js 发出来（web.ts 里直接读 node_modules），没有打包步骤。
+ *
+ * 裸 HTML 一律不放行 —— 正文是模型输出，而模型是被群消息牵着走的。这个页面背后是
+ * POST /api/config 和 /api/run（全权限跑 CC），一句 <img onerror> 就能把"群里随便谁 @ 一下"
+ * 升级成"改你的配置"。所以 html 渲染器直接返回空串。
+ *
+ * 唯一例外是我们自己拼进卡片里的 font / text_tag：那两个在 parse 之前就摘成占位符了 ——
+ * marked 的标签名不认下划线，text_tag 会被它当普通文字转义掉，放行不了。
+ */
+/*
+ * 链接 / 图片只放行 http(s) / mailto。marked 不管协议：`[看日志](javascript:…)` 原样出成可点的链接，
+ * 一点就以本页的身份调 /api/config —— 跟裸 HTML 是同一个口子。返回 false = 交回 marked 默认渲染。
+ */
+const safeHref = (u) => /^(https?:|mailto:)/i.test(String(u ?? '').trim());
+if (typeof marked !== 'undefined') marked.use({
+  gfm: true, breaks: true,
+  renderer: {
+    html: () => '',
+    link(t) { return safeHref(t.href) ? false : this.parser.parseInline(t.tokens); },
+    image(t) { return safeHref(t.href) ? false : ''; },
+  },
+});
+
+function mdNode(src, size) {
+  const s = String(src ?? '');
+  const n = el('div', 'md');
+  if (size === 'notation') n.style.fontSize = '12px';
+  // marked 没挂上（多半是忘了 npm i）就退成纯文本 —— 别让整个控制台白屏
+  if (typeof marked === 'undefined') { n.style.whiteSpace = 'pre-wrap'; n.textContent = s; return n; }
+  const held = [];
+  n.innerHTML = marked
+    .parse(s.replace(/<\/?(?:font|text_tag)[^>]*>/g, (m) => `\u0000${held.push(cardTag(m)) - 1}\u0000`))
+    .replace(/\u0000(\d+)\u0000/g, (_, i) => held[+i]);
+  return n;
+}
+
+/* ---------- SSE ---------- */
+const es = new EventSource('/api/events');
+es.onopen = () => { $('dot').className = 'dot on'; };
+es.onerror = () => { $('dot').className = 'dot'; $('stat').textContent = '连接断开，重连中…'; };
+es.onmessage = (e) => {
+  const m = JSON.parse(e.data);
+  if (m.type === 'snapshot') {
+    jobs = new Map(m.jobs.map((j) => [j.id, j]));
+    if (!sel || !jobs.has(sel)) sel = pick(m.jobs);
+    renderAll();
+  } else if (m.type === 'config') {
+    cfg = m.config;
+    if (pendingReload && draft) { pendingReload = false; const k = keepStat; openSettings(pane); keepStat = k; renderFoot(); }
+    // 设置开着、没有没保存的改动：别处改了配置（比如向导拉完工作区自动指过去）就跟着刷新，不然下次保存会把它盖回去
+    else if (draft && !changes().length) {
+      const y = $('set-body').scrollTop; openSettings(pane); $('set-body').scrollTop = y;
+      loadProjects().then(() => { if (draft && !isSent(pane) && !changes().length) rerenderPane(); });
+    }
+    else if (!draft && hashPane() !== undefined) openSettings(hashPane());
+    renderStatus(); loadChats(); renderAll();
+  } else if (m.type === 'job') {
+    const j = jobs.get(m.job.id) || { events: [] };
+    Object.assign(j, m.job);
+    jobs.set(j.id, j);
+    if (!sel && (!grp || j.chatId === grp) && modeOk(j)) sel = j.id;
+    renderStatus(); renderGroups(); renderMid();
+    if (j.id === sel) renderDetail();
+  } else if (m.type === 'setup' && m.section === 'plugin') {
+    // 插件 / MCP 的进度（向导和设置共用这一路）：页头显示最新一条，结束了重拉状态
+    ccSay(m.done ? (m.ok ? '✓ ' : '✗ ') + m.msg : m.msg, m.done && !m.ok);
+    if (m.done) { loadCC(); if (ccAvail !== null) searchAvail(); }
+  } else if (m.type === 'ev') {
+    const j = jobs.get(m.id);
+    if (!j) return;
+    j.events.push(m.ev);
+    if (j.id !== sel || view !== 'trace') return;
+    const flow = document.querySelector('#dbody .trace');
+    if (!flow) return renderDetail();
+    const n = evNode(m.ev, j.startedAt, flow._open);
+    if (n) flow.appendChild(n);
+    applyFilter(flow);
+    const box = $('dbody');
+    const near = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
+    if (near) box.scrollTop = box.scrollHeight;
+  }
+};
+
+/** 默认选中：当前群最近的那条；没有就全部里最近的一条 */
+function pick(list) {
+  const pool = list.filter((j) => (!grp || j.chatId === grp) && modeOk(j));
+  const from = pool.length ? pool : list;
+  return from.length ? from.slice().sort((a, b) => b.startedAt - a.startedAt)[0].id : null;
+}
+
+function renderAll() { renderGroups(); renderMid(); renderDetail(); }
+renderGFilters();
+
+/** 一个入口管着哪些会话，一句话说清。私聊不能算进"群"里 —— 数字对不上人会以为哪儿配错了 */
+function scopeText(m) {
+  const ids = Object.keys(m.chats);
+  const dm = ids.filter(isP2P).length;
+  const g = m.allGroups ? '所有群' : `${ids.length - dm} 个群`;
+  const p = m.allP2p ? '所有私聊' : `${dm} 个私聊`;
+  return [g, p].filter((x) => !/^0 /.test(x)).join(' + ') || '一个会话都没开';
+}
+
+function renderStatus() {
+  if (!cfg) return;
+  const n = [...jobs.values()].filter((j) => !j.test).length;
+  const user = cfg.user.on ? `@我：${scopeText(cfg.user)} · 每 ${Math.round(cfg.pollMs / 1000)} 秒` : '@我：关';
+  const bot = cfg.bot.on ? `@机器人${cfg.bot.name ? '（' + cfg.bot.name + '）' : ''}：${scopeText(cfg.bot)} · 实时` : '@机器人：关';
+  $('stat').textContent = `${user} · ${bot} · ${n} 条作业`;
+}
+
+/* ---------- 会话列表 / 项目候选 ---------- */
+async function loadChats() {
+  if (!allChats) {
+    try { const d = await fetch('/api/chats').then((r) => r.json()); allChats = d.chats ?? []; chatsErr = d.error || ''; }
+    catch (e) { allChats = []; }
+    renderGroups(); renderMid(); renderDetail();   // 详情头要靠会话列表认出私聊 / 群名
+  }
+  // 具体时间要一个个会话查，慢，所以先出名字，时间回来再补
+  try {
+    const a = (await fetch('/api/activity').then((r) => r.json())).activity;
+    for (const c of allChats) c.lastAt = a[c.chatId] || null;
+    renderGroups(); renderMid();
+  } catch (e) { /* 没时间也能用 */ }
+}
+/** 项目候选：工作区（向导拉的 + 登记过的目录）。canPick = 桌面版，能弹系统的选目录框 */
+let projData = { workspaces: [], canPick: false };
+async function loadProjects() {
+  try {
+    const d = await fetch('/api/projects').then((r) => r.json());
+    projData = { workspaces: d.workspaces || [], canPick: !!d.canPick };
+  } catch (e) { /* 拿不到就只能手填 */ }
+  const dl = $('projlist');
+  dl.textContent = '';
+  for (const w of projData.workspaces) { const o = el('option'); o.value = w.path; o.label = w.name; dl.appendChild(o); }
+}
+loadProjects();
+
+/* ---------- 设置 ---------- */
+/*
+ * 整页视图：左边「常规 / Claude Code / @我 / @机器人」+ 模板，右边编辑一个，底下一个保存条。改动先攒在 draft 里，保存才落盘
+ * （Claude Code 页例外：点了就做，见 paneCC）。
+ * 开着哪页记在 #settings / #settings/<模板名>，刷新还在（只 replaceState，不往历史里塞）。
+ * 会话开不开、用哪个模板不在这儿 —— 在会话头上直接切，立刻生效（见 chatCtl）。
+ */
+// 不是模板的几页，键不会跟模板名撞；值是地址栏里的写法（#settings/~cc）
+const GENERAL = '\u0000general', USER = '\u0000user', BOT = '\u0000bot', CC = '\u0000cc', ENV = '\u0000env';
+const SENT = { [GENERAL]: '', [USER]: '~user', [BOT]: '~bot', [CC]: '~cc', [ENV]: '~env' };
+const isSent = (k) => Object.hasOwn(SENT, k);
+const MODE_PANE = { user: USER, bot: BOT };
+const PERM = [['plan', '只读', '只查不改：读代码、查日志，不动任何文件'],
+  ['auto', '自动', '常规操作直接做，危险操作会被拦下'],
+  ['bypassPermissions', '全放开', '不做任何确认，什么都能执行 —— 只给自己用的模板']];
+const permLabel = (m) => (PERM.find(([v]) => v === (m || 'auto')) || [m, m])[1];
+
+let draft = null;          // 设置里正在编的副本；null = 设置没开
+let saved = null;          // draft 的已保存快照，算"改了哪些"用
+let pane = GENERAL;        // 右边在编哪个：GENERAL 或模板名
+let renamed = {};          // 新名 → 原名。模板改名后还能对得上原来那份，"改了几处"才不会数成两处
+let judgeStash = {};       // 关掉判定时先把提示词收着，再打开还在
+let advOpen = false;       // 「高级」展开着没有（重画时保持）
+let pendingReload = false; // 刚保存：等服务端推回新配置后重建 draft（token 只剩 hasToken）
+let keepStat = '';         // 保存后的提示，重建 draft 后接着显示
+
+/** 服务端配置 → 可编辑的副本。网关 token 拿不到原值：from 记原模板名，没新填 token = 沿用已存的 */
+const modeDraft = (m) => ({ on: m.on, defaultTemplate: m.defaultTemplate, chats: { ...m.chats }, allP2p: m.allP2p, allGroups: m.allGroups });
+const editable = () => ({
+  user: modeDraft(cfg.user), bot: modeDraft(cfg.bot),
+  pollMs: cfg.pollMs, maxJobs: cfg.maxJobs, judgeModel: cfg.judgeModel,
+  templates: Object.fromEntries(Object.entries(cfg.templates).map(([k, t]) => {
+    const c = JSON.parse(JSON.stringify(t));
+    if (c.gateway) c.gateway = { baseUrl: c.gateway.baseUrl, hasToken: c.gateway.hasToken, from: k };
+    return [k, c];
+  })),
+});
+
+function openSettings(at) {
+  const first = !draft;
+  draft = editable();
+  saved = JSON.parse(JSON.stringify(draft));
+  renamed = {}; judgeStash = {};
+  if (at !== undefined) pane = at;
+  if (!isSent(pane) && !draft.templates[pane]) pane = draft.user.defaultTemplate;
+  if (pane === CC && first) loadCC(true);   // 配置推送也会走到这里重建 draft，别每次都让服务端重扫
+  ensureModelList();
+  $('settings').hidden = false; $('stage').hidden = true;
+  $('btn-cfg').setAttribute('aria-pressed', 'true');
+  if (first) { loadProjects().then(() => { if (draft && !isSent(pane)) rerenderPane(); }); $('set-body').scrollTop = 0; }
+  renderSettings();
+}
+/** 有没保存的改动就先问一句。返回 false = 用户选了留下 */
+const okToLeave = () => !draft || !changes().length || confirm('有改动还没保存，丢掉？');
+function closeSettings() {
+  if (!okToLeave()) return;
+  $('settings').hidden = true; $('stage').hidden = false; draft = null; keepStat = '';
+  $('btn-cfg').setAttribute('aria-pressed', 'false');
+  history.replaceState(null, '', location.pathname + location.search);
+}
+/** 位置写进地址栏：刷新回到同一页 */
+function syncHash() {
+  if (draft) history.replaceState(null, '', '#settings' + (pane === GENERAL ? '' : '/' + (SENT[pane] || encodeURIComponent(pane))));
+}
+/** 刷新进来带着 #settings：等第一份配置到了再开 */
+function hashPane() {
+  const m = /^#settings(?:\/(.*))?$/.exec(location.hash);
+  if (!m) return undefined;
+  const sent = Object.keys(SENT).find((k) => SENT[k] && SENT[k] === m[1]);
+  if (sent) return sent;
+  try { return m[1] ? decodeURIComponent(m[1]) : GENERAL; } catch (e) { return GENERAL; }
+}
+
+/** 跟已保存的比，改了哪些（GENERAL / USER / BOT / 模板名）。模板改名按原名比，新建 / 删除各算一处 */
+function changes() {
+  if (!draft) return [];
+  const out = new Set();
+  if (['maxJobs', 'judgeModel'].some((k) => draft[k] !== saved[k])) out.add(GENERAL);
+  for (const k of ['user', 'bot']) {
+    const d = draft[k], s = saved[k];
+    if (['on', 'allP2p', 'allGroups'].some((f) => d[f] !== s[f]) || (renamed[d.defaultTemplate] || d.defaultTemplate) !== s.defaultTemplate
+      || (k === 'user' && draft.pollMs !== saved.pollMs)) out.add(MODE_PANE[k]);
+  }
+  const origins = new Set();
+  for (const [name, t] of Object.entries(draft.templates)) {
+    const from = renamed[name] || name;
+    origins.add(from);
+    if (from !== name || JSON.stringify(t) !== JSON.stringify(saved.templates[from])) out.add(name);
+  }
+  for (const name of Object.keys(saved.templates)) if (!origins.has(name)) out.add('删了「' + name + '」');
+  return [...out];
+}
+
+function renderSettings() { renderNav(); renderPane(); renderFoot(); syncHash(); }
+/** 任何一处改动都调它：只刷左栏的小圆点和底下的保存条，不重画正在打字的那块 */
+function touch() { keepStat = ''; renderNav(); renderFoot(); }
+
+function renderFoot() {
+  const n = changes().length;
+  const st = $('set-stat');
+  if (keepStat && !n) { st.textContent = keepStat; st.className = keepStat.startsWith('⚠') ? 'warn' : 'note'; }
+  else { st.textContent = n ? n + ' 处改动还没保存（' + SAVE_KEY + ' 保存）' : '改了会在这里提示，点「保存」才生效'; st.className = n ? 'dirty' : 'note'; }
+  $('set-save').disabled = !n;
+  $('set-revert').disabled = !n;
+  // 「环境」里点了就生效，用不着保存条；别的页还有没保存的改动就留着，不然找不到地方存
+  $('set-save').closest('footer').style.display = pane === ENV && !n ? 'none' : '';
+}
+
+const SAVE_KEY = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘S' : 'Ctrl+S';
+const usersOf = (name, k = 'user') => Object.entries(draft[k].chats).filter(([, t]) => (draft.templates[t] ? t : draft[k].defaultTemplate) === name).map(([id]) => id);
+/** 两个入口加起来几个会话在用（同一个会话两边都开只算一个） */
+const useCount = (name) => new Set([...usersOf(name), ...usersOf(name, 'bot')]).size;
+
+function renderNav() {
+  const nav = $('set-nav');
+  nav.textContent = '';
+  const dirty = new Set(changes());
+  const back = el('button', 'navback', '← 返回');
+  back.title = '回到主界面（Esc）'; back.onclick = closeSettings;
+  nav.append(back, el('div', 'navtitle', '设置'));
+  nav.appendChild(navItem(GENERAL, '常规', '', dirty.has(GENERAL)));
+  nav.appendChild(navItem(ENV, '环境', '网关 · 飞书 · 工作区', false));
+  const ccItem = navItem(CC, 'Claude Code', '', false);
+  if (cc?.needsAuth) { const c = el('span', 'navcount', String(cc.needsAuth)); c.title = cc.needsAuth + ' 个 MCP 要重新授权'; ccItem.appendChild(c); }
+  nav.appendChild(ccItem);
+  nav.appendChild(el('h4', null, '入口'));
+  nav.appendChild(navItem(USER, '@我', draft.user.on ? '' : '关', dirty.has(USER)));
+  nav.appendChild(navItem(BOT, '@机器人', draft.bot.on ? '' : '关', dirty.has(BOT)));
+  nav.appendChild(el('h4', null, '模板'));
+  for (const name of Object.keys(draft.templates)) {
+    const n = useCount(name);
+    const sub = [name === draft.user.defaultTemplate && '@我默认', name === draft.bot.defaultTemplate && '@机器人默认', n && String(n)]
+      .filter(Boolean).join(' · ');
+    nav.appendChild(navItem(name, name, sub, dirty.has(name)));
+  }
+  const add = el('button', 'navadd', '+ 新建模板');
+  add.onclick = () => {
+    let n = '新模板', i = 2;
+    while (draft.templates[n]) n = '新模板' + i++;
+    draft.templates[n] = { permissionMode: 'plan' };   // 新模板先只读，确认好了再放开
+    pane = n; renderSettings();
+  };
+  nav.appendChild(add);
+}
+function navItem(key, label, sub, dirty) {
+  const b = el('button', 'navi');
+  b.setAttribute('aria-current', String(pane === key));
+  b.append(el('span', 'nm' + (dirty ? ' dirty' : ''), label));
+  if (sub) b.append(el('small', null, sub));
+  b.onclick = () => go(key);
+  return b;
+}
+/** 设置里跳到某页（导航、页面里的「去 @我 页」之类的链接都走这里） */
+function go(key) {
+  if (key === CC && pane !== CC) loadCC(true);
+  pane = key; renderSettings(); $('set-body').scrollTop = 0;
+}
+/** 页面里的小链接：点了跳到设置的另一页 */
+function goLink(text, key) { const a = el('button', 'link', text); a.type = 'button'; a.onclick = () => go(key); return a; }
+
+function renderPane() {
+  const head = $('set-head'), body = $('set-body');
+  // 「环境」嵌的是向导页：配置推送也会走到这里重画，iframe 一挪就重载、填了一半的字会丢 —— 已经在了就别动
+  if (pane === ENV && body.querySelector('.envframe')) return;
+  head.textContent = ''; body.textContent = '';
+  body.classList.toggle('is-frame', pane === ENV);
+  if (!isSent(pane) && !draft.templates[pane]) pane = GENERAL;
+  if (pane === GENERAL) paneGeneral(head, body);
+  else if (pane === USER) paneEntry(head, body, 'user');
+  else if (pane === BOT) paneEntry(head, body, 'bot');
+  else if (pane === CC) paneCC(head, body);
+  else if (pane === ENV) paneEnv(head, body);
+  else paneTemplate(head, body, pane);
+}
+/** 重画右边但别跳回顶上（开关判定之类会多出 / 少掉一块） */
+function rerenderPane() { const y = $('set-body').scrollTop; renderPane(); $('set-body').scrollTop = y; }
+
+/* 表单小件：标签在上，控件撑满 */
+function blk(title, hintText) {
+  const s = el('section', 'blk');
+  const hd = el('div', 'blkh'); hd.appendChild(el('h3', null, title));
+  s.appendChild(hd);
+  if (hintText) s.appendChild(el('p', 'hint', hintText));
+  return s;
+}
+function fi(label, control, hintText) {
+  const single = !Array.isArray(control) && /^(INPUT|SELECT|TEXTAREA)$/.test(control.tagName);
+  const w = el(single ? 'label' : 'div', 'fi');
+  w.appendChild(el('span', 'lb', label));
+  for (const c of [].concat(control)) w.appendChild(c);
+  if (hintText != null) w.appendChild(typeof hintText === 'string' ? el('p', 'hint', hintText) : hintText);
+  return w;
+}
+function sw(checked, text, onchange) {
+  const l = el('label', 'switch');
+  const i = el('input'); i.type = 'checkbox'; i.checked = !!checked;
+  i.onchange = () => onchange(i.checked);
+  l.append(i, el('span', 'knob'), el('span', null, text));
+  return l;
+}
+function numIn(value, lo, hi, onset) {
+  const n = el('input'); n.type = 'number'; n.min = lo; n.max = hi; n.value = value;
+  n.oninput = () => { const v = Number(n.value); if (Number.isFinite(v) && n.value !== '') { onset(Math.min(hi, Math.max(lo, Math.round(v)))); touch(); } };
+  return n;
+}
+/** 模型候选：服务端给的（别名 + ~/.claude/settings.json 里映射的模型名），手填完整模型名也行 */
+function ensureModelList() {
+  let dl = $('modellist');
+  if (!dl) { dl = el('datalist'); dl.id = 'modellist'; document.body.appendChild(dl); }
+  dl.textContent = '';
+  for (const m of new Set(['claude-haiku-4-5', ...(cfg.models || [])])) { const o = el('option'); o.value = m; dl.appendChild(o); }
+}
+const setOr = (o, k, v) => { if (v === '' || v === undefined || v === null || (Array.isArray(v) && !v.length)) delete o[k]; else o[k] = v; };
+
+/** 环境：上手向导那一页原样嵌进来（工具、网关、飞书、工作区、插件），向导能配的这里都能改。点了立刻生效，跟底下的「保存」无关 */
+function paneEnv(head, body) {
+  head.append(el('h2', null, '环境'), el('span', 'pmeta', '改了立刻生效'));
+  const f = el('iframe', 'envframe'); f.src = '/setup?embed'; f.title = '环境';
+  body.appendChild(f);
+}
+
+function paneGeneral(head, body) {
+  head.appendChild(el('h2', null, '常规'));
+
+  const b1 = blk('同时跑', '@我 和 @机器人 共用：同时最多几个 Claude Code 在跑，多出来的排队。保存即生效。');
+  const g1 = el('div', 'grid2');
+  g1.append(fi('最多同时跑几个', numIn(draft.maxJobs, 1, 10, (v) => { draft.maxJobs = v; })));
+  b1.appendChild(g1);
+  body.appendChild(b1);
+
+  const b2 = blk('判定模型', '开了「先判定」的模板，每条 @ 先用它直接调一次 API 判要不要回。只做分类，挑快的。打哪个网关跟着模板走。');
+  const jm = el('input'); jm.value = draft.judgeModel || ''; jm.setAttribute('list', 'modellist');
+  jm.oninput = () => { if (jm.value.trim()) { draft.judgeModel = jm.value.trim(); touch(); } };
+  const g2 = el('div', 'grid2'); g2.append(fi('模型', jm));
+  b2.appendChild(g2);
+  body.appendChild(b2);
+
+  const b3 = blk('服务', '端口在 config.json 里，改完要重启进程。「我」（飞书登录）和默认网关在「环境」里改。');
+  const dl = el('dl', 'kv');
+  for (const [k, v] of [['监听', '127.0.0.1:' + cfg.port + '（只回环）'], ['我', cfg.me], ['默认网关', cfg.defaultBaseUrl]]) dl.append(el('dt', null, k), el('dd', null, v));
+  b3.appendChild(dl);
+  body.appendChild(b3);
+}
+
+/**
+ * @我 / @机器人 各一页：开关 → 回哪些会话 → 默认模板（→ @我 还有轮询）。
+ * 两个入口流程不一样（谁的身份、怎么收消息），排查是同一套 CC、同一个模板库
+ */
+const ENTRY = {
+  user: { title: '@我', what: '搜到 @我 的消息，以我本人回',
+    how: '每隔一会儿全局搜一次「@我」。搜索索引有一两分钟延迟。私聊里也要 @你 才算 —— 不然你跟人聊天的每句话都会被它接过去。' },
+  bot: { title: '@机器人', what: '有人 @机器人，以机器人回',
+    how: '长连接收消息，秒级开跑，卡片流式打字。群里 @它、或者私聊它（不用 @）。追问：群里在话题里再 @它，私聊引用它的卡片。' },
+};
+function paneEntry(head, body, k) {
+  const m = draft[k], E = ENTRY[k];
+  head.appendChild(el('h2', null, E.title));
+  if (k === 'bot' && cfg.bot.name) head.appendChild(el('span', 'pmeta', cfg.bot.name));
+
+  const b0 = blk(E.what, E.how);
+  b0.querySelector('.blkh').appendChild(sw(m.on, '', (v) => { m.on = v; touch(); rerenderPane(); }));
+  body.appendChild(b0);
+  if (!m.on) { b0.appendChild(el('p', 'hint', '关着：' + (k === 'user' ? '不搜也不回。' : '收到也不回。'))); return; }
+
+  // 整类放开：开了这一类就不看逐个开关（逐个选的模板照样算）；关着就只回会话头上开了的
+  const n = Object.keys(m.chats).length;
+  const b1 = blk('回哪些会话', '没整类放开的，只回在主界面会话头上逐个打开的' + (n ? '（现在开了 ' + n + ' 个）。' : '（现在一个都没开）。'));
+  const g = el('div', 'grid2');
+  g.append(
+    fi('私聊', sw(m.allP2p, '所有私聊都回', (v) => { m.allP2p = v; touch(); rerenderPane(); }), m.allP2p ? '不用逐个开。' : '只回开了的私聊。'),
+    fi('群', sw(m.allGroups, '所有群都回', (v) => { m.allGroups = v; touch(); rerenderPane(); }),
+      m.allGroups ? (k === 'bot' ? '它被拉进哪个群就回哪个群。' : '⚠ 你在的每个群里有人 @你 都会跑。') : '只回开了的群。'),
+  );
+  b1.appendChild(g);
+  body.appendChild(b1);
+
+  const b2 = blk('默认模板', '会话头上没单独选模板的都用它：项目、权限、提示词都在模板里。');
+  const bs = el('select'); bs.setAttribute('aria-label', E.title + ' 默认模板');
+  for (const name of Object.keys(draft.templates)) { const o = el('option'); o.value = name; o.textContent = name; bs.appendChild(o); }
+  bs.value = m.defaultTemplate;
+  bs.onchange = () => { m.defaultTemplate = bs.value; touch(); renderNav(); rerenderPane(); };
+  const perm = draft.templates[m.defaultTemplate]?.permissionMode || 'auto';
+  const tip = el('p', 'hint');
+  tip.append('权限：' + permLabel(perm) + '。');
+  if (k === 'bot' && perm !== 'plan' && m.allP2p) { tip.className = 'hint bad'; tip.append('不是只读，而且所有私聊都回 —— 任何人私聊机器人都能让它动手。'); }
+  else if (k === 'bot' && perm === 'plan') tip.append('谁来问都只查不改。');
+  tip.append(' ', goLink('编辑这个模板', m.defaultTemplate));
+  const g2 = el('div', 'grid2'); g2.append(fi('模板', bs, tip));
+  b2.appendChild(g2);
+  body.appendChild(b2);
+
+  if (k === 'user') {
+    const b3 = blk('轮询', '一轮 = 一次全局搜「@我」。搜索索引本身有一两分钟延迟，间隔低于 60 秒意义不大。保存即生效。');
+    const g3 = el('div', 'grid2');
+    g3.append(fi('间隔（秒）', numIn(Math.round(draft.pollMs / 1000), 3, 3600, (v) => { draft.pollMs = v * 1000; })));
+    b3.appendChild(g3);
+    body.appendChild(b3);
+  }
+}
+
+/* ---------- 设置 → Claude Code：插件 / MCP 授权 / skill / 插件市场 ---------- */
+/*
+ * 跟别的页不一样：点了就做，不进 draft、不用保存。慢的（装插件、拉市场、授权）服务端先回 { started }，
+ * 过程走 SSE（type 'setup'，section 'plugin'），结束（done）时重拉一遍状态。
+ */
+let cc = null;                  // GET /api/setup/cc；null = 还没拿到
+let ccMsg = null;               // 最近一条进度 / 报错 { text, bad }，显示在页头
+const ccLogin = {};             // MCP 全名 → 刚点授权的结果 { url } | { terminal } | { error } | { wait }
+let ccAvail = null, ccQ = '', ccQT = 0, ccSeq = 0;   // 可装的插件：结果 / 搜索词 / 防抖 / 只认最后一次
+let ccPoll = 0;
+const shortId = (id) => String(id || '').split('@')[0];
+
+async function loadCC(fresh) {
+  let d;
+  try { d = await fetch('/api/setup/cc' + (fresh ? '?fresh=1' : '')).then((r) => r.json()); } catch (e) { return; }
+  if (!d || !Array.isArray(d.mcp)) return;   // 老后端没这个接口
+  cc = d;
+  // 授权提示什么时候收：浏览器那条 —— 服务端不在等了；终端那条（Windows）—— 连上了
+  for (const name of Object.keys(ccLogin)) {
+    const m = cc.mcp.find((x) => x.name === name), l = ccLogin[name];
+    if (!m || (!m.loggingIn && (l.url || m.state === 'ok'))) delete ccLogin[name];
+  }
+  // 服务端在扫 / 在装：过几秒再拉（SSE 的 done 也会触发，这里兜底）
+  clearTimeout(ccPoll);
+  if (cc.scanning || cc.plugins.some((p) => p.busy) || cc.marketplaces.some((m) => m.busy)) ccPoll = setTimeout(() => loadCC(), 3000);
+  paintCfgDot();
+  if (draft) { renderNav(); ccRender(); }
+}
+/** 顶栏「设置」：有 MCP 要授权就带个点，点开直接到 Claude Code 页 */
+function paintCfgDot() {
+  const b = $('btn-cfg'), n = cc?.needsAuth || 0;
+  b.classList.toggle('has-dot', n > 0);
+  b.title = n ? n + ' 个 MCP 要重新授权' : '';
+  b.setAttribute('aria-label', n ? '设置（' + n + ' 个 MCP 要重新授权）' : '设置');
+}
+/** 重画 Claude Code 页，正在打字的输入框（带 data-k）焦点和光标留着 */
+function ccRender() {
+  if (!draft || pane !== CC) return;
+  const a = document.activeElement, k = a?.dataset?.k, pos = a?.selectionStart;
+  rerenderPane();
+  const n = k && $('set-body').querySelector(`[data-k="${k}"]`);
+  if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} }
+}
+function ccSay(text, bad) {
+  ccMsg = { text, bad: !!bad };
+  const st = $('cc-stat');
+  if (st) { st.textContent = text; st.className = bad ? 'warn' : 'pmeta'; }
+}
+/** POST 一个动作：开始了就重拉状态（显示「安装中…」），没开始就把原因摆到页头 */
+async function ccDo(url, body, startText) {
+  const d = await post(url, body).catch((e) => ({ ok: false, error: e.message }));
+  if (d.ok === false || d.error) ccSay('✗ ' + (d.error || '没成功'), true);
+  else if (startText) ccSay(startText);
+  loadCC();
+  return d;
+}
+
+function btn(text, onclick, cls) { const b = el('button', cls || null, text); b.type = 'button'; b.onclick = onclick; return b; }
+function ccRow(name, subs, acts, hintNode) {
+  const r = el('div', 'ccrow');
+  const t = el('div', 'cctxt');
+  t.appendChild(el('b', null, name));
+  for (const x of subs) if (x) t.appendChild(typeof x === 'string' ? el('small', null, x) : x);
+  const a = el('div', 'ccacts');
+  for (const x of acts) if (x) a.appendChild(x);
+  r.append(t, a);
+  if (hintNode) r.appendChild(hintNode);
+  return r;
+}
+const CC_STATE = { ok: '已连接', missing: '要授权', error: '连不上', running: '检查中' };
+
+function paneCC(head, body) {
+  head.appendChild(el('h2', null, 'Claude Code'));
+  const st = el('span', ccMsg?.bad ? 'warn' : 'pmeta', ccMsg?.text || ''); st.id = 'cc-stat';
+  head.append(st, el('span', 'spacer'));
+  const rb = btn(cc?.scanning ? '检查中…' : '重新检测', async () => {
+    rb.disabled = true; rb.textContent = '检查中…';
+    await ccDo('/api/setup/mcp/refresh', {});
+  });
+  rb.disabled = !!cc?.scanning;
+  rb.title = '重新查一遍插件和 MCP 的状态（MCP 要挨个连一下，几秒）';
+  head.appendChild(rb);
+
+  const intro = el('p', 'hint', '这一页的操作立刻生效，不用点保存；新的 @ 就用上。');
+  if (cc?.configDir) intro.append(el('br'), '配置在 ' + cc.configDir + '（跟你自己终端里的 Claude Code 分开）');
+  body.appendChild(intro);
+  if (!cc) { body.appendChild(el('p', 'note', '加载中…')); return; }
+  if (cc.error) body.appendChild(el('p', 'hint bad', cc.error));
+  if (cc.needsAuth) body.appendChild(el('div', 'ccbanner', cc.needsAuth + ' 个 MCP 要授权（多半是过期了）：点「授权」，浏览器里同意就好。'));
+
+  /* MCP 授权 */
+  const bm = blk('MCP 授权', '插件带的取证工具（查库、日志、配置…）。没授权只是少这一类工具，查代码照样能答。');
+  const ml = el('div', 'cclist');
+  for (const m of cc.mcp) {
+    const l = ccLogin[m.name];
+    const state = m.loggingIn ? 'running' : m.state;
+    const chip = el('span', 'ccst ' + state, m.loggingIn ? '授权中' : CC_STATE[m.state] || m.state);
+    const login = () => mcpLogin(m.name);
+    const acts = m.loggingIn ? [btn('重新打开', login)]
+      : m.state === 'missing' ? [btn('授权', login, 'primary')]
+      : m.state === 'ok' ? [btn('重新授权', login, 'ghost'), btn('退出登录', () => mcpLogout(m), 'ghost')]
+      : [];
+    const h = el('p', 'hint');
+    if (l?.error) { h.className = 'hint bad'; h.textContent = l.error; }
+    else if (l?.wait) h.textContent = '正在起授权…';
+    else if (l?.terminal) h.textContent = '在弹出的终端窗口里完成授权，好了会自动打勾。';
+    else if (m.loggingIn) {
+      h.textContent = '等你在浏览器里授权…';
+      if (l?.url) { const a = el('a', null, '浏览器没弹出来？点这里打开'); a.href = l.url; a.target = '_blank'; a.rel = 'noopener'; h.append(' ', a); }
+    } else if (m.state !== 'ok' && m.status) h.textContent = m.status;
+    ml.appendChild(ccRow(m.label, [m.plugin && shortId(m.plugin), chip], acts, h));
+  }
+  if (!cc.mcp.length) ml.appendChild(el('p', 'hint', cc.scanning ? '检查中…' : '还没有 MCP。装了带 MCP 的插件会出现在这里。'));
+  bm.appendChild(ml);
+  body.appendChild(bm);
+
+  /* 插件 */
+  const bp = blk('插件', '插件里打包了 skill、MCP 等。装完、更新完，下一条 @ 就用上。');
+  const pl = el('div', 'cclist');
+  for (const p of cc.plugins) {
+    const tag = p.preset && el('span', 'badge', '团队推荐');
+    const sub = [p.marketplace, p.version && 'v' + String(p.version).slice(0, 12), p.skills.length && p.skills.length + ' 个 skill', p.mcp.length && p.mcp.length + ' 个 MCP'].filter(Boolean).join(' · ');
+    let acts;
+    if (p.busy) acts = [el('span', 'ccbusy', p.busy)];
+    else {
+      const s = sw(p.enabled, p.enabled ? '启用' : '停用', (v) => ccDo('/api/setup/cc/plugin', { action: v ? 'enable' : 'disable', plugin: p.id }, (v ? '启用 ' : '停用 ') + p.name + '…'));
+      acts = [s,
+        btn('更新', () => ccDo('/api/setup/cc/plugin', { action: 'update', plugin: p.id }, '更新 ' + p.name + '…'), 'ghost'),
+        btn('卸载', () => { if (confirm('卸载插件「' + p.name + '」？它带的 skill 和 MCP 一起没了。')) ccDo('/api/setup/cc/plugin', { action: 'uninstall', plugin: p.id }, '卸载 ' + p.name + '…'); }, 'ghost danger')];
+    }
+    pl.appendChild(ccRow(p.name, [tag, sub], acts));
+  }
+  if (!cc.plugins.length) pl.appendChild(el('p', 'hint', cc.scanning ? '检查中…' : '一个插件都没装。'));
+  bp.appendChild(pl);
+
+  const add = el('div', 'ccadd');
+  const q = el('input'); q.value = ccQ; q.placeholder = '搜插件名或用途，比如 frontend'; q.dataset.k = 'ccq';
+  q.setAttribute('aria-label', '搜可安装的插件');
+  q.oninput = () => { ccQ = q.value; clearTimeout(ccQT); ccQT = setTimeout(searchAvail, 250); };
+  const res = el('div', 'cclist ccavail'); res.id = 'cc-avail';
+  add.append(fi('添加插件', q, '从下面「插件市场」里搜；要的不在里面，先把它的市场加进来。'), res);
+  bp.appendChild(add);
+  body.appendChild(bp);
+  paintAvail(res);
+  if (ccAvail === null) searchAvail();
+
+  /* Skill */
+  const bs = blk('Skill', '告诉 Claude 遇到某类问题怎么查的说明书。插件带的跟着插件走；也可以自己加。');
+  const groups = new Map();
+  for (const k of cc.skills) {
+    const g = k.personal ? '\u0000' : k.plugin || '';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(k);
+  }
+  for (const [g, list] of [...groups].sort(([a], [b]) => (a === '\u0000') - (b === '\u0000'))) {
+    bs.appendChild(el('div', 'ccgrp', g === '\u0000' ? '自己加的' : g ? '插件 ' + shortId(g) + ' 带的' : '其它'));
+    const sl = el('div', 'cclist');
+    for (const k of list) {
+      const d = el('small', 'ccdesc', k.description || ''); d.title = k.description || '';
+      const acts = k.personal ? [btn('删除', async () => {
+        if (!confirm('删掉 skill「' + k.name + '」？')) return;
+        const r = await ccDo('/api/setup/cc/skill', { action: 'remove', name: k.name });
+        if (r.ok) ccSay('删掉了 ' + k.name);
+      }, 'ghost danger')] : [];
+      sl.appendChild(ccRow(k.name, [k.description && d], acts));
+    }
+    bs.appendChild(sl);
+  }
+  if (!cc.skills.length) bs.appendChild(el('p', 'hint', cc.scanning ? '检查中…' : '还没有 skill。'));
+  const addSkill = async (path) => {
+    if (!path) return;
+    const r = await ccDo('/api/setup/cc/skill', { action: 'add', path });
+    if (r.ok) { ccSay('加好了 ' + (r.name || '')); sp.value = ''; }
+  };
+  const sp = el('input'); sp.placeholder = '/路径/到/某个 skill 文件夹'; sp.dataset.k = 'ccskill'; sp.spellcheck = false;
+  sp.setAttribute('aria-label', 'skill 文件夹路径');
+  sp.onkeydown = (e) => { if (e.key === 'Enter') addSkill(sp.value.trim()); };
+  const row = el('div', 'inrow');
+  if (projData.canPick) row.appendChild(btn('选择文件夹…', async () => {
+    const d = await post('/api/pick-folder', {}).catch(() => ({}));
+    if (d.path) addSkill(d.path);
+  }));
+  row.append(sp, btn('添加', () => addSkill(sp.value.trim())));
+  const sa = el('div', 'ccadd'); sa.appendChild(fi('添加 skill', row, '选一个含 SKILL.md 的文件夹，会拷一份进来。'));
+  bs.appendChild(sa);
+  body.appendChild(bs);
+
+  /* 插件市场 */
+  const bk = blk('插件市场', '插件从这里来。加一个市场，它里面的插件就能在上面搜到、安装。');
+  const kl = el('div', 'cclist');
+  for (const m of cc.marketplaces) {
+    const acts = m.busy ? [el('span', 'ccbusy', m.busy)] : [
+      btn('更新', () => ccDo('/api/setup/cc/marketplace', { action: 'update', name: m.name }, '更新市场 ' + m.name + '…'), 'ghost'),
+      !m.preset && !m.builtin && btn('移除', () => { if (confirm('移除插件市场「' + m.name + '」？')) ccDo('/api/setup/cc/marketplace', { action: 'remove', name: m.name }, '移除 ' + m.name + '…'); }, 'ghost danger'),
+    ];
+    kl.appendChild(ccRow(m.name, [m.preset && el('span', 'badge', '团队推荐'), m.builtin && el('span', 'badge', '自带'), m.url], acts));
+  }
+  if (!cc.marketplaces.length) kl.appendChild(el('p', 'hint', '还没有插件市场。'));
+  bk.appendChild(kl);
+  const src = el('input'); src.placeholder = 'git 地址、GitHub owner/repo 或 https 链接'; src.dataset.k = 'ccsrc'; src.spellcheck = false;
+  src.setAttribute('aria-label', '插件市场地址');
+  const addMk = async () => {
+    const v = src.value.trim();
+    if (!v) return;
+    const r = await ccDo('/api/setup/cc/marketplace', { action: 'add', source: v }, '拉插件市场 ' + v + '…');
+    if (r.started) src.value = '';
+  };
+  src.onkeydown = (e) => { if (e.key === 'Enter') addMk(); };
+  const mr = el('div', 'inrow'); mr.append(src, btn('添加', addMk));
+  const ma = el('div', 'ccadd'); ma.appendChild(fi('添加插件市场', mr));
+  bk.appendChild(ma);
+  body.appendChild(bk);
+}
+
+async function searchAvail() {
+  const seq = ++ccSeq;
+  let d;
+  try { d = await fetch('/api/setup/cc/available?q=' + encodeURIComponent(ccQ.trim())).then((r) => r.json()); } catch (e) { d = { error: e.message }; }
+  if (seq !== ccSeq) return;
+  ccAvail = d.plugins || [];
+  if (d.error) ccSay('✗ 搜插件失败：' + d.error, true);
+  const box = $('cc-avail');
+  if (box) paintAvail(box);
+}
+function paintAvail(box) {
+  box.textContent = '';
+  if (ccAvail === null) { box.appendChild(el('p', 'hint', '加载中…')); return; }
+  if (!ccAvail.length) { box.appendChild(el('p', 'hint', ccQ.trim() ? '没搜到。' : '没有能装的了。')); return; }
+  for (const p of ccAvail) {
+    const d = el('small', 'ccdesc', p.description || ''); d.title = p.description || '';
+    box.appendChild(ccRow(p.name, [p.marketplace, p.description && d],
+      [btn('安装', (e) => { e.target.disabled = true; ccDo('/api/setup/cc/plugin', { action: 'install', plugin: p.id }, '安装 ' + p.name + '…'); })]));
+  }
+}
+
+async function mcpLogin(name) {
+  ccLogin[name] = { wait: true }; ccRender();
+  const d = await post('/api/setup/mcp/login', { name }).catch((e) => ({ ok: false, error: e.message }));
+  ccLogin[name] = d.url ? { url: d.url } : d.terminal ? { terminal: true } : d.opened ? {} : { error: d.error || '授权没起来' };
+  loadCC();
+}
+async function mcpLogout(m) {
+  if (!confirm('退出 ' + m.label + ' 的登录？之后要用得重新授权。')) return;
+  const d = await post('/api/setup/mcp/logout', { name: m.name }).catch((e) => ({ ok: false, error: e.message }));
+  if (!d.ok) ccLogin[m.name] = { error: d.error || '没退出成功' };
+  else ccSay('已退出 ' + m.label);
+  loadCC();
+}
+
+function paneTemplate(head, body, name) {
+  const t = draft.templates[name];
+  // 哪个入口拿它当默认（默认在 @我 / @机器人 页里选）
+  const defs = [['user', USER, '@我'], ['bot', BOT, '@机器人']].filter(([k]) => draft[k].defaultTemplate === name);
+
+  const title = el('input', 'ptitle'); title.value = name; title.setAttribute('aria-label', '模板名');
+  // 宽度跟着字走（field-sizing 不是哪儿都有）：中文按 1em、其它按 0.6em 估
+  const fit = () => { title.style.width = [...title.value].reduce((w, c) => w + (c.charCodeAt(0) > 255 ? 1 : 0.6), 1.4) + 'em'; };
+  title.oninput = fit; fit();
+  title.onchange = () => renameTemplate(name, title.value.trim(), title);
+  head.appendChild(title);
+  for (const [, , label] of defs) head.appendChild(el('span', 'badge', label + '默认'));
+  const users = usersOf(name);
+  const n = useCount(name);
+  head.appendChild(el('span', 'pmeta', n ? n + ' 个会话在用' : '没有会话在用'));
+  if (!defs.length) { const dh = el('span', 'pmeta'); dh.append('默认模板在 ', goLink('@我', USER), ' / ', goLink('@机器人', BOT), ' 页里选'); head.appendChild(dh); }
+
+  // 基本
+  const b1 = blk('基本');
+  const projHint = el('p', 'hint');
+  const syncProj = () => {
+    projHint.textContent = '';
+    const ws = projData.workspaces.find((w) => w.path === t.project);
+    if (ws) { projHint.className = 'hint'; projHint.textContent = '工作区「' + ws.name + '」'; return; }
+    if (t.project) return;
+    projHint.className = 'hint bad';
+    projHint.append('还没选项目，用这个模板的会话不会跑。');
+    if (projData.workspaces.length) projHint.append('点右边「选择」挑一个工作区。');
+    else { const a = el('a', null, '去「环境」拉一个工作区'); a.href = '#settings/~env'; a.onclick = (e) => { e.preventDefault(); go(ENV); }; projHint.append(a); }
+  };
+  const proj = projPicker(t.project || '', (v) => { setOr(t, 'project', v); syncProj(); touch(); });
+  syncProj();
+  const model = el('input'); model.value = t.model || ''; model.placeholder = '留空 = claude 默认'; model.setAttribute('list', 'modellist');
+  model.oninput = () => { setOr(t, 'model', model.value.trim()); touch(); };
+  const g = el('div', 'grid2');
+  g.append(fi('项目', proj, projHint), fi('模型', model));
+  b1.appendChild(g);
+
+  const seg = el('div', 'seg2'); seg.setAttribute('role', 'group');
+  const permHint = el('p', 'hint');
+  const cur = t.permissionMode || 'auto';
+  const opts = PERM.some(([v]) => v === cur) ? PERM : [...PERM, [cur, cur, '手改 config.json 写的值']];
+  const syncPerm = () => {
+    const m = t.permissionMode || 'auto';
+    for (const btn of seg.children) btn.setAttribute('aria-pressed', String(btn.dataset.v === m));
+    permHint.textContent = (opts.find(([v]) => v === m) || [])[2] || '';
+  };
+  for (const [v, label] of opts) {
+    const btn = el('button', null, label); btn.dataset.v = v; btn.type = 'button';
+    btn.onclick = () => { t.permissionMode = v; syncPerm(); touch(); };
+    seg.appendChild(btn);
+  }
+  syncPerm();
+  b1.appendChild(fi('权限', seg, permHint));
+  body.appendChild(b1);
+
+  // 怎么回
+  const b2 = blk('怎么回', 'Claude Code 的系统提示词，整段替换、不是追加。留空 = 不加任何系统提示词。');
+  const ta = el('textarea', 'prose'); ta.rows = 9; ta.value = t.prompt || ''; ta.placeholder = '留空 = 不加系统提示词';
+  ta.setAttribute('aria-label', '系统提示词');
+  ta.oninput = () => { setOr(t, 'prompt', ta.value.trim()); touch(); };
+  const fill = el('button', 'link', '填入内置默认那段');
+  fill.onclick = () => { ta.value = cfg.defaultPrompt; setOr(t, 'prompt', ta.value.trim()); touch(); };
+  const ph = el('p', 'hint'); ph.appendChild(fill);
+  b2.append(ta, ph);
+  body.appendChild(b2);
+
+  // 先判定
+  const b3 = blk('先判定要不要回');
+  b3.querySelector('.blkh').appendChild(sw(!!t.judge, '', (on) => {
+    if (on) t.judge = judgeStash[name] || t.judge || cfg.defaultJudge;
+    else { judgeStash[name] = t.judge; delete t.judge; }
+    touch(); rerenderPane();
+  }));
+  if (t.judge) {
+    b3.appendChild(el('p', 'hint', 'Claude Code 起来之前，先拿这段提示词调一次判定模型（不带工具，一两秒）：要回才交给它；不用回就算了；转给我 = 私聊你一条；叫停 = 掐掉这个会话里在跑的。输出格式是代码里定的，这里只写分类和例子。'));
+    const jt = el('textarea', 'prose'); jt.rows = 11; jt.value = t.judge; jt.setAttribute('aria-label', '判定提示词');
+    jt.oninput = () => { setOr(t, 'judge', jt.value.trim()); touch(); };
+    const jf = el('button', 'link', '换成内置默认判定');
+    jf.onclick = () => { jt.value = cfg.defaultJudge; t.judge = cfg.defaultJudge; touch(); };
+    const jh = el('p', 'hint'); jh.appendChild(jf);
+    b3.append(jt, jh);
+  } else {
+    b3.appendChild(el('p', 'hint', '关着：每条 @ 都直接交给 Claude Code。自己用的模板就这样。'));
+  }
+  body.appendChild(b3);
+
+  // 高级
+  const adv = el('details', 'adv'); adv.open = advOpen;
+  adv.ontoggle = () => { advOpen = adv.open; };
+  const set = [t.claudeSettings && 'CC settings', t.claudeArgs && '额外参数', t.self && '处理自己的消息'].filter(Boolean);
+  const sm = el('summary'); sm.append(el('span', null, '高级'), el('small', null, set.length ? '已设：' + set.join('、') : 'Claude Code settings、额外参数、自测'));
+  adv.appendChild(sm);
+  const ab = el('div', 'advbody');
+
+  const url = el('input'); url.value = t.gateway?.baseUrl || ''; url.placeholder = '留空 = 默认网关';
+  const tk = el('input'); tk.type = 'password'; tk.autocomplete = 'off';
+  const clr = el('button', null, '清掉');
+  const test = el('button', null, '测一下');
+  const gwHint = el('p', 'hint');
+  const syncGw = () => {
+    const g = t.gateway;
+    tk.disabled = !g;
+    tk.placeholder = !g ? '先填地址' : g.token === '' ? '保存后清掉' : g.hasToken ? '已设置（留空 = 不改）' : '没设置';
+    clr.hidden = !(g && g.hasToken && g.token !== '');
+    const bad = g && !/^https?:\/\/\S+$/.test(g.baseUrl);
+    gwHint.className = bad ? 'hint bad' : 'hint';
+    gwHint.textContent = bad ? '地址要是 http(s)://… —— 不对的保存时会丢掉'
+      : 'Claude Code 和这个模板的判定都打这里（经 claude --settings，盖过 ~/.claude/settings.json）。token 当 Bearer 发，存在 config.json（0600），不会再显示。';
+  };
+  url.oninput = () => {
+    const v = url.value.trim();
+    if (!v) delete t.gateway;
+    else t.gateway = { ...(t.gateway || { hasToken: false, from: renamed[name] || name }), baseUrl: v };
+    syncGw(); touch();
+  };
+  tk.oninput = () => { if (!t.gateway) return; if (tk.value) t.gateway.token = tk.value; else delete t.gateway.token; touch(); };
+  clr.onclick = () => { t.gateway.token = ''; tk.value = ''; syncGw(); touch(); };
+  test.onclick = async () => {
+    gwHint.className = 'hint'; gwHint.textContent = '测试中…';
+    const g = t.gateway;
+    const d = await post('/api/gateway-test', { template: name, from: g?.from, baseUrl: g?.baseUrl || '', token: g?.token, model: draft.judgeModel });
+    gwHint.className = d.ok ? 'hint ok' : 'hint bad';
+    gwHint.textContent = (d.ok ? '✓ ' : '✗ ') + (d.detail || d.error || '') + (d.ms ? '（' + d.ms + 'ms，用判定模型测的）' : '');
+  };
+  syncGw();
+  const tkRow = el('div', 'inrow'); tkRow.append(tk, clr, test);
+  const g4 = el('div', 'grid2');
+  g4.append(fi('网关地址', url), fi('Token', tkRow));
+  const bgw = blk('模型网关', '留空 = 用默认网关：' + (cfg.defaultBaseUrl || '?'));
+  bgw.append(g4, gwHint);
+  body.appendChild(bgw);   // 不塞在「高级」里：打到哪是最该一眼看到的
+
+  const cs = el('textarea'); cs.rows = 5; cs.spellcheck = false;
+  cs.value = t.claudeSettings ? JSON.stringify(t.claudeSettings, null, 2) : '';
+  cs.placeholder = '{ "env": { "ANTHROPIC_MODEL": "xxx" } }';
+  const CS_HINT = '跟 ~/.claude/settings.json 一个格式，叠在它上面。换了网关、模型名对不上时，在 env 里改 ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL。';
+  const csHint = el('p', 'hint', CS_HINT);
+  cs.oninput = () => {
+    const v = cs.value.trim();
+    try {
+      if (!v) delete t.claudeSettings;
+      else {
+        const o = JSON.parse(v);
+        if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('要是一个 JSON 对象');
+        t.claudeSettings = o;
+      }
+      csHint.className = 'hint'; csHint.textContent = CS_HINT; touch();
+    } catch (e) { csHint.className = 'hint bad'; csHint.textContent = 'JSON 不对，这次没记上：' + e.message; }
+  };
+  ab.appendChild(fi('Claude Code settings（JSON）', cs, csHint));
+
+  const args = el('input'); args.value = (t.claudeArgs || []).join(' '); args.placeholder = '--max-turns 30';
+  args.oninput = () => { setOr(t, 'claudeArgs', args.value.split(/\s+/).filter(Boolean)); touch(); };
+  const g5 = el('div', 'grid2');
+  g5.append(fi('额外参数', args), fi('自测', sw(t.self, '也处理我自己发的消息', (on) => { setOr(t, 'self', on || undefined); touch(); })));
+  ab.appendChild(g5);
+  adv.appendChild(ab);
+  body.appendChild(adv);
+
+  const bd = blk('删除这个模板');
+  bd.classList.add('blk-danger');
+  if (defs.length) {
+    bd.classList.add('is-off');
+    const h = el('p', 'hint', '这是 ' + defs.map(([, , l]) => l).join('、') + ' 的默认模板，不能删：会话头上没单独选模板的都用它。要删先去');
+    defs.forEach(([, key, l], i) => h.append(i ? '、' : '', goLink('「' + l + '」', key)));
+    h.append('换一个默认模板。');
+    bd.appendChild(h);
+  } else {
+    bd.appendChild(el('p', 'hint', users.length ? users.length + ' 个会话在用它，删了改用默认模板「' + draft.user.defaultTemplate + '」。保存后才真删。' : '没有会话在用它。保存后才真删。'));
+    const del = el('button', 'danger', '删除模板「' + name + '」');
+    del.onclick = () => deleteTemplate(name);
+    const r = el('div', 'inrow'); r.appendChild(del);
+    bd.appendChild(r);
+  }
+  body.appendChild(bd);
+}
+
+/**
+ * 项目选择器：输入框（手填也行）+「选择」下拉：工作区（名字 + 路径）→ 选择文件夹…（只有桌面版）。
+ * 下拉里按输入过滤；↑↓ 挑、回车选、Esc 收起（不冒泡，免得把整个设置页也关了）。
+ */
+function projPicker(value, onset) {
+  const w = el('div', 'pick');
+  const inp = el('input'); inp.value = value; inp.placeholder = '选一个工作区，或填目录路径'; inp.setAttribute('aria-label', '项目');
+  inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-expanded', 'false'); inp.autocomplete = 'off'; inp.spellcheck = false;
+  const tog = el('button', null, '选择'); tog.type = 'button'; tog.setAttribute('aria-haspopup', 'listbox');
+  w.append(inp, tog);
+  let menu = null, items = [], hl = -1, filter = '';
+
+  // 选定的目录顺手登记成工作区：别的模板的下拉里、下次也能直接挑。登记过的、不存在的、重名的后端会拒，不影响这个模板用它
+  // ponytail: 跟已有工作区重名（比如两个都叫 order）就不登记了，要的话后端自动加后缀
+  const register = async (p) => {
+    if (!p || projData.workspaces.some((x) => x.path === p)) return;
+    await post('/api/setup/workspace/add-existing', { path: p }).catch(() => {});
+    await loadProjects();
+  };
+  const set = (v) => { inp.value = v; onset(v.trim()); close(); register(v.trim()); };
+  const close = () => {
+    if (!menu) return;
+    menu.remove(); menu = null; items = []; hl = -1;
+    inp.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('mousedown', outside, true);
+  };
+  const outside = (e) => { if (!w.contains(e.target)) close(); };
+  const move = (d) => {
+    if (!items.length) return;
+    hl = (hl + d + items.length) % items.length;
+    items.forEach((b, i) => b.classList.toggle('is-hl', i === hl));
+    items[hl].scrollIntoView({ block: 'nearest' });
+  };
+  const item = (cls, parts, pick) => {
+    const b = el('button', 'pick-it' + (cls ? ' ' + cls : '')); b.type = 'button'; b.setAttribute('role', 'option');
+    b.append(...parts);
+    b.onmousedown = (e) => e.preventDefault();   // 别让输入框失焦
+    b.onclick = pick;
+    items.push(b);
+    return b;
+  };
+  const draw = () => {
+    menu.textContent = ''; items = []; hl = -1;
+    const kw = filter.trim().toLowerCase();
+    const hit = (s) => !kw || s.toLowerCase().includes(kw);
+    const cur = inp.value.trim();
+    const ws = projData.workspaces.filter((x) => hit(x.name + ' ' + x.path));
+    menu.appendChild(el('div', 'pick-h', '工作区'));
+    if (ws.length) for (const x of ws) menu.appendChild(item(x.path === cur ? 'is-cur' : '', [el('b', null, x.name), el('small', null, x.path)], () => set(x.path)));
+    else if (!projData.workspaces.length) {
+      const n = el('div', 'pick-none'); const a = el('a', null, '去「环境」拉一个'); a.href = '#settings/~env';
+      a.onclick = (e) => { e.preventDefault(); go(ENV); };
+      n.append('还没有工作区。', a); menu.appendChild(n);
+    } else menu.appendChild(el('div', 'pick-none', '没有匹配的工作区'));
+    if (projData.canPick) {
+      const act = el('div', 'pick-act');
+      act.appendChild(item('', ['选择文件夹…'], async () => {
+        close();
+        const d = await post('/api/pick-folder', {}).catch(() => ({}));
+        if (d && d.path) set(d.path);
+      }));
+      menu.appendChild(act);
+    }
+  };
+  const open = () => {
+    if (menu) return;
+    filter = '';
+    menu = el('div', 'pick-menu'); menu.setAttribute('role', 'listbox');
+    w.appendChild(menu); draw();
+    inp.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', outside, true);
+  };
+  tog.onclick = () => { if (menu) close(); else { open(); inp.focus(); } };
+  inp.oninput = () => { onset(inp.value.trim()); if (menu) { filter = inp.value; draw(); } };
+  inp.onchange = () => register(inp.value.trim());   // 手填的：填完离开输入框才算定了，不是每敲一个字都登记
+  inp.onkeydown = (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!menu) open(); move(e.key === 'ArrowDown' ? 1 : -1); }
+    else if (e.key === 'Enter' && menu && hl >= 0) { e.preventDefault(); items[hl].click(); }
+    else if (e.key === 'Escape' && menu) { e.stopPropagation(); close(); }
+  };
+  return w;
+}
+
+/** 离开这一页（去向导之类）：设置里有没保存的改动先问 */
+function leave(url) { if (okToLeave()) location.href = url; }
+
+function deleteTemplate(name) {
+  if (Object.keys(draft.templates).length <= 1) return alert('至少要留一个模板');
+  const users = usersOf(name);
+  if (users.length && !confirm(users.length + ' 个会话在用它，删了会改用默认模板。确定？')) return;
+  delete draft.templates[name];
+  delete renamed[name];
+  for (const id of users) draft.user.chats[id] = '';
+  if (draft.user.defaultTemplate === name) draft.user.defaultTemplate = Object.keys(draft.templates)[0];
+  for (const [id, t] of Object.entries(draft.bot.chats)) if (t === name) delete draft.bot.chats[id];
+  if (draft.bot.defaultTemplate === name) draft.bot.defaultTemplate = Object.keys(draft.templates)[0];
+  pane = draft.user.defaultTemplate;
+  renderSettings();
+}
+function renameTemplate(from, to, input) {
+  if (!to || to === from) { input.value = from; return; }
+  if (draft.templates[to]) { input.value = from; return alert('已经有叫「' + to + '」的模板了'); }
+  // 保持在列表里的位置
+  draft.templates = Object.fromEntries(Object.entries(draft.templates).map(([k, v]) => [k === from ? to : k, v]));
+  const origin = renamed[from] || from;
+  delete renamed[from];
+  if (origin !== to) renamed[to] = origin;
+  for (const m of [draft.user, draft.bot]) {
+    for (const [id, t] of Object.entries(m.chats)) if (t === from) m.chats[id] = to;
+    if (m.defaultTemplate === from) m.defaultTemplate = to;
+  }
+  if (from in judgeStash) { judgeStash[to] = judgeStash[from]; delete judgeStash[from]; }
+  pane = to;
+  renderSettings();
+}
+
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return r.json();
+}
+
+$('btn-cfg').onclick = () => { if (draft) closeSettings(); else openSettings(cc?.needsAuth ? CC : undefined); };
+// MCP 授权会过期：开着页面就隔半小时重查一次，过期了顶栏「设置」上出个点
+loadCC();
+setInterval(() => loadCC(true), 30 * 60_000);
+$('btn-setup').onclick = () => leave('/setup');
+$('set-body').addEventListener('scroll', () => $('set-head').classList.toggle('is-scrolled', $('set-body').scrollTop > 0));
+$('set-revert').onclick = () => { draft = JSON.parse(JSON.stringify(saved)); renamed = {}; judgeStash = {}; renderSettings(); };
+$('set-save').onclick = async () => {
+  const st = $('set-stat');
+  st.textContent = '保存中…'; st.className = 'note';
+  $('set-save').disabled = true;
+  pendingReload = true;   // 服务端推回新配置时重建 draft（可能比这个响应先到）
+  const d = await post('/api/config', draft).catch((e) => ({ error: e.message }));
+  if (!d.ok) {
+    pendingReload = false;
+    st.textContent = '没保存上：' + d.error; st.className = 'warn';
+    $('set-save').disabled = false;
+    return;
+  }
+  keepStat = d.warnings?.length ? '⚠ 已保存，但' + d.warnings.join('；') : '已保存，下一条 @ 就用新配置';
+  if (draft) renderFoot();
+};
+
+/* ---------- 会话头上：开不开 + 用哪个模板，切了立刻生效 ---------- */
+function chatCtl(chatId) {
+  const wrap = el('div');
+  for (const [mode, name] of MODES) if (cfg?.[mode].on) wrap.appendChild(modeRow(chatId, mode, name));
+  if (!wrap.childNodes.length) {
+    const p = el('p', 'note', '两个入口都关着：');
+    const a = el('button', 'link', '去设置里打开'); a.onclick = () => openSettings(USER);
+    p.appendChild(a); wrap.appendChild(p);
+  }
+  return wrap;
+}
+
+/** 一个入口在这个会话上：开不开 + 用哪个模板。被「所有私聊 / 所有群」盖住的开关是灰的 */
+function modeRow(chatId, mode, name) {
+  const m = cfg[mode];
+  const row = el('div', 'chatctl');
+  const all = covered(m, chatId);
+  const on = chatId in m.chats || all;
+  const msg = el('span', 'warn');
+  const send = async (body) => {
+    msg.textContent = '';
+    const d = await post('/api/chat', { chatId, mode, ...body }).catch((e) => ({ error: e.message }));
+    if (!d.ok) { msg.textContent = d.error; renderMid(); setTimeout(() => { msg.textContent = d.error; }, 0); }
+    // 成功就等服务端推新配置过来重画
+  };
+  const s = sw(on, name + ' ' + (on ? '自动回' : '没开自动回'), (v) => send({ on: v }));
+  if (all) {
+    s.querySelector('input').disabled = true;
+    s.title = `${name} 开了「所有${isP2P(chatId) ? '私聊' : '群'}都回」，点这里去设置 → ${name} 里改`;
+    s.onclick = () => openSettings(MODE_PANE[mode]);
+  }
+  row.appendChild(s);
+  if (!all) row.title = `有人 ${name === '@我' ? '@你' : '@机器人'} 就自动跑。切了立刻生效`;
+  if (on) {
+    const sel = el('select'); sel.setAttribute('aria-label', name + ' 用哪个模板');
+    for (const n of Object.keys(cfg.templates)) {
+      const o = el('option'); o.value = n; o.textContent = n + (n === m.defaultTemplate ? '（默认）' : ''); sel.appendChild(o);
+    }
+    sel.value = m.resolved?.[chatId]?.template || m.defaultTemplate;
+    sel.onchange = () => send({ on: true, template: sel.value });
+    const edit = el('button', 'ghost', '编辑'); edit.title = '编辑这个模板';
+    edit.onclick = () => openSettings(sel.value);
+    const tpl = el('span', 'chatctl-tpl');
+    tpl.append(sel, edit);
+    row.appendChild(tpl);
+  }
+  row.appendChild(msg);
+  return row;
+}
+
+/* ---------- 试跑 ---------- */
+let runResume = '';
+function openRun(job, resume) {
+  const s = $('r-chat');
+  s.textContent = '';
+  const none = el('option'); none.value = ''; none.textContent = '（不指定，用默认配置）';
+  s.appendChild(none);
+  for (const id of Object.keys(cfg.user.chats)) { const o = el('option'); o.value = id; o.textContent = chatName(id); s.appendChild(o); }
+  s.value = job && job.chatId in cfg.user.chats ? job.chatId : '';
+  $('r-proj').value = (job && job.project) || resolvedFor('user', s.value)?.project || '';
+  $('r-q').value = job ? job.q : '';
+  runResume = resume || '';
+  $('run-stat').textContent = '';
+  $('run').hidden = false; $('scrim').hidden = false;
+  echoRun();
+  $('r-q').focus();
+}
+function closeRun() { $('run').hidden = true; $('scrim').hidden = true; }
+
+/** 跑之前先把"这句话会被怎么处理"摆出来 —— 路由、权限、提示词来源 */
+function echoRun() {
+  const chatId = $('r-chat').value;
+  const r = resolvedFor('user', chatId);
+  const proj = $('r-proj').value.trim() || r?.project || '';
+  const e = $('r-echo');
+  e.textContent = '';
+  const line = (k, v, cls) => { const d = el('div'); d.append(el('b', null, k + '：'), el('span', cls, v)); return d; };
+  e.append(
+    line('项目', proj || '（空）', proj ? '' : 'no'),
+    line('权限', permLabel(r?.permissionMode)),
+    line('模型', r?.model || 'claude 默认'),
+    line('判定', r?.judge ? '先判定要不要回' : '直接回'),
+    line('提示词', r?.prompt ? `模板「${r.template}」自己那段` : `模板「${r?.template || '?'}」没设（不加系统提示词）`),
+  );
+  if (!chatId) e.appendChild(el('div', 'note', '没指定会话：用默认模板，项目也由它决定 —— 底下那个项目框是手填的覆盖。'));
+  else if (!r) e.appendChild(el('div', 'note', '这个会话没开自动回 —— 试跑照样能跑，但真消息不会触发。'));
+  const rb = $('r-resumebox');
+  if (runResume) {
+    rb.hidden = false;
+    rb.textContent = '';
+    rb.append(document.createTextNode('在 session '), el('code', null, runResume), document.createTextNode(' 上接着问（--resume，项目要跟原来一致）。'));
+    const x = el('button', 'ghost', '不续了');
+    x.onclick = () => { runResume = ''; echoRun(); };
+    rb.appendChild(x);
+  } else rb.hidden = true;
+}
+$('btn-run').onclick = () => openRun();
+$('run-close').onclick = closeRun;
+for (const id of ['r-chat', 'r-proj']) $(id).addEventListener('input', echoRun);
+$('r-chat').addEventListener('change', () => {
+  $('r-proj').value = resolvedFor('user', $('r-chat').value)?.project || '';
+  echoRun();
+});
+$('run-go').onclick = async () => {
+  const body = {
+    chatId: $('r-chat').value, project: $('r-proj').value.trim(),
+    prompt: $('r-q').value.trim(), resume: runResume || undefined,
+  };
+  if (!body.prompt) { $('run-stat').textContent = '先写一句要问的话'; return; }
+  $('run-go').disabled = true; $('run-stat').textContent = '启动中…';
+  const r = await fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json();
+  $('run-go').disabled = false;
+  if (!r.ok) { $('run-stat').textContent = d.error || '起不来'; return; }
+  grp = body.chatId || grp; sel = d.id; view = 'trace'; closeRun(); renderAll();
+};
+
+$('run-judge').onclick = async () => {
+  const body = { chatId: $('r-chat').value, prompt: $('r-q').value.trim(), p2p: isP2P($('r-chat').value) };
+  if (!body.prompt) { $('run-stat').textContent = '先写一句要问的话'; return; }
+  $('run-judge').disabled = true; $('run-stat').textContent = '判定中…';
+  const r = await fetch('/api/judge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  $('run-judge').disabled = false;
+  $('run-stat').textContent = !r.ok ? (d.error || '判定失败') : d.none ? '这个会话的模板没开「先判定」—— 会直接交给 Claude Code' : `${d.label}：${d.reason}`;
+};
+
+/* ---------- 键盘 ---------- */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { if (!$('run').hidden) closeRun(); else if (!$('settings').hidden) closeSettings(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === 's' && draft) { e.preventDefault(); if (!$('set-save').disabled) $('set-save').click(); return; }
+  if (e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { e.preventDefault(); $('gsearch').focus(); }
+});
+$('gsearch').addEventListener('input', () => { gq = $('gsearch').value.trim().toLowerCase(); renderGroups(); });
+
+/* ---------- 左栏筛选 ---------- */
+function renderGFilters() {
+  $('f-hasjobs').setAttribute('aria-pressed', String(gHasJobs));
+  const seg = $('gkind');
+  seg.textContent = '';
+  for (const [k, label] of [['all', '全部'], ['group', '群'], ['p2p', '私聊']]) {
+    const b = el('button', null, label);
+    b.setAttribute('aria-pressed', String(gKind === k));
+    b.onclick = () => { gKind = k; renderGFilters(); renderGroups(); };
+    seg.appendChild(b);
+  }
+}
+$('f-hasjobs').onclick = () => {
+  gHasJobs = !gHasJobs;
+  try { localStorage.setItem('lcr.hasJobs', gHasJobs ? '1' : ''); } catch (e) {}
+  renderGFilters(); renderGroups();
+};
+
+/* ---------- 三栏拖宽 ---------- */
+// 宽度只是这台机器上的偏好，存 localStorage（读写都可能抛：隐私模式、禁了站点数据）
+const COLS = { rail: { min: 176, max: 384 }, mid: { min: 208, max: 512 } };   // px；另有 CSS 里的占窗宽上限
+let colW = {};
+try { colW = JSON.parse(localStorage.getItem('lcr.cols')) || {}; } catch (e) {}
+function setCol(k, px) {
+  if (px == null) delete colW[k];
+  else colW[k] = Math.round(Math.min(Math.max(px, COLS[k].min), COLS[k].max));
+  paintCols();
+  try { localStorage.setItem('lcr.cols', JSON.stringify(colW)); } catch (e) {}
+}
+function paintCols() {
+  for (const k in COLS) {
+    if (colW[k]) $('stage').style.setProperty('--w-' + k, colW[k] + 'px'); else $('stage').style.removeProperty('--w-' + k);
+    const g = document.querySelector(`.stage-grip[data-col=${k}]`);
+    g.setAttribute('aria-valuemin', COLS[k].min); g.setAttribute('aria-valuemax', COLS[k].max);
+    g.setAttribute('aria-valuenow', Math.round(document.querySelector('.col.' + k).getBoundingClientRect().width));
+  }
+}
+for (const g of document.querySelectorAll('.stage-grip')) {
+  const k = g.dataset.col;
+  const width = () => document.querySelector('.col.' + k).getBoundingClientRect().width;
+  g.onpointerdown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    g.setPointerCapture(e.pointerId);
+    g.classList.add('stage-grip-on'); $('stage').classList.add('stage-drag');
+    const x0 = e.clientX, w0 = width();
+    g.onpointermove = (ev) => setCol(k, w0 + ev.clientX - x0);
+    g.onpointerup = g.onpointercancel = () => {
+      g.onpointermove = g.onpointerup = g.onpointercancel = null;
+      g.classList.remove('stage-grip-on'); $('stage').classList.remove('stage-drag');
+    };
+  };
+  g.ondblclick = () => setCol(k, null);
+  // 键盘：← → 一次 16px，按住 Shift 一次 48px；Home 恢复默认
+  g.onkeydown = (e) => {
+    const d = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
+    if (d) { e.preventDefault(); setCol(k, width() + d * (e.shiftKey ? 3 : 1)); }
+    else if (e.key === 'Home') { e.preventDefault(); setCol(k, null); }
+  };
+}
+paintCols();
+addEventListener('resize', paintCols);   // 窗口一缩，CSS 的占窗宽上限可能生效，读屏报的宽度跟着更新
+</script>
+</body>
+</html>

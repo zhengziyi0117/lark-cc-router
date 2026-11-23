@@ -1,0 +1,69 @@
+{
+  "name": "lark-cc-router",
+  "version": "0.2.7",
+  "private": true,
+  "type": "module",
+  "description": "飞书群里有人 @我 → Claude Code 全权限排查 → 以我本人身份在话题里流式回一张卡片",
+  "repository": "github:zhengziyi0117/lark-cc-router",
+  "engines": {
+    "node": ">=24"
+  },
+  "main": "desktop/main.js",
+  "scripts": {
+    "start": "node src/index.ts",
+    "dev": "node --watch src/index.ts",
+    "test": "node --test src/*.test.ts src/setup/*.test.ts desktop/*.test.js",
+    "desktop": "electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist": "electron-builder --mac --win",
+    "release": "npm version patch && git push --follow-tags && npm run release:github",
+    "release:github": "git branch -f release $(GIT_AUTHOR_NAME=zhengziyi0117 GIT_AUTHOR_EMAIL=91662408+zhengziyi0117@users.noreply.github.com GIT_COMMITTER_NAME=zhengziyi0117 GIT_COMMITTER_EMAIL=91662408+zhengziyi0117@users.noreply.github.com git commit-tree HEAD^{tree} -p release -m $(git describe --tags --abbrev=0)) && git push github release"
+  },
+  "dependencies": {
+    "marked": "^18.1.1"
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "local.lark-cc-router",
+    "asar": false,
+    "files": [
+      "src/**",
+      "!src/**/*.test.ts",
+      "desktop/**",
+      "!desktop/**/*.test.js",
+      "node_modules/marked/**",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "icon": "desktop/icon.png"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "desktop/icon-win.png"
+    },
+    "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    }
+  }
+}

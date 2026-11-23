@@ -1,0 +1,53 @@
+# 推 release 分支 → 测试 → 在 macOS 上一次打 mac + Windows 两个包 → 发到 Releases（tag = v<package.json 版本>）
+# 同一个版本号重复推：覆盖已有 Release 里的包，不新建
+name: release
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Apple 芯片要求至少 ad-hoc 签名，codesign 只有 mac 有；Windows 包在 mac 上交叉打，不用 wine
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+      # 可选：仓库 Settings → Secrets 里配 PRESET_JSON（格式同 desktop/preset.json），打进安装包当向导默认值
+      - name: 团队预置
+        env:
+          PRESET_JSON: ${{ secrets.PRESET_JSON }}
+        run: if [ -n "$PRESET_JSON" ]; then printf '%s' "$PRESET_JSON" > desktop/preset.json; fi
+
+      - run: npx electron-builder --mac --win --publish never
+
+      # 给桌面版自动更新读：版本号 + 每个包的大小、sha256（见 desktop/update.js）
+      - name: latest.json
+        run: |
+          node -e '
+            const fs = require("fs"), { createHash } = require("crypto");
+            const files = fs.readdirSync("dist").filter((f) => /\.(dmg|exe)$/.test(f)).map((name) => {
+              const b = fs.readFileSync("dist/" + name);
+              return { name, size: b.length, sha256: createHash("sha256").update(b).digest("hex") };
+            });
+            fs.writeFileSync("dist/latest.json", JSON.stringify({ version: require("./package.json").version, files }, null, 2));
+          '
+          cat dist/latest.json
+
+      - name: 发 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="v$(node -p 'require("./package.json").version')"
+          gh release view "$v" >/dev/null 2>&1 || gh release create "$v" --target "$GITHUB_SHA" --title "$v" --generate-notes
+          gh release upload "$v" dist/*.dmg dist/*.exe dist/latest.json --clobber
