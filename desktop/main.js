@@ -306,4 +306,4 @@ app.on('before-quit', (e) => {
   Promise.race([svc?.stop(), new Promise((r) => setTimeout(r, 15_000))]).finally(() => app.exit(0));
 });
 // 开发态在终端里 Ctrl+C：走同一条收尾
-for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => app.quit());
+for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(s, () => app.quit());

@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
-  searchMentions, replyCard, updateCard, deleteMessage, threadIdOf, downloadImage, sendText, sendCard, getMessage, botIdentity, consume, kit, topicMessages,
+  searchMentions, replyCard, updateCard, deleteMessage, threadIdOf, downloadImage, sendText, sendCard, getMessage, fetchMessage, botIdentity, consume, kit, topicMessages,
   type Bot, type Message,
 } from './lark.ts';
 import { healthDiff, healthOf, withPending, type Health } from './health.ts';
@@ -10,7 +10,7 @@ import { callJudge, judgeInput, DECISION_CN, type Verdict } from './judge.ts';
 import { runAgent, type AgentEvent } from './agent.ts';
 import { Pool } from './store.ts';
 import { startJob, pushEvent, finishJob, markPosted, setReason } from './bus.ts';
-import { CardStream, KitStream, thinkingCard, type Kit } from './card.ts';
+import { CardStream, KitStream, buildCard, thinkingCard, type Kit } from './card.ts';
 import type { Db } from './db.ts';
 import {
   argsFor, claudeSettingsFor, expandProject, isOn, projectFor, promptFor, resolveChat, scopeOf, type Config, type ModeName, type Scope,
@@ -276,16 +276,19 @@ const SHUTDOWN: Stop = { note: '（服务重启了，这次没跑完）', error:
 const STOPPED: Stop = { note: '（被叫停了）', error: '被叫停' };
 const STOPPED_WEB: Stop = { note: '（已手动停止）', error: '后台终止' };
 
-/** 试跑没有卡片也不在 running 里，单独记它的开关 */
-const testAborts = new Map<string, AbortController>();
+/**
+ * 试跑不在 running 里（没有群消息、不接棒），单独记：开关 + 跑完的信号。
+ * 停机要掐它、等它把卡片收成「已中断」—— 以前没管，只剩试跑在跑时一按 Ctrl+C 进程当场退出，卡片停在「处理中」
+ */
+const tests = new Map<string, { ac: AbortController; settled: Promise<void> }>();
 
 /**
  * web UI 上点「终止」：掐掉这一个作业，卡片按正常的"被掐"路径收尾。
  * 返回 false = 没找到在跑的（已经跑完了，或者还在判定那一两秒里）。
  */
 export function stopJob(id: string): boolean {
-  const t = testAborts.get(id);
-  if (t) return t.abort(), true;
+  const t = tests.get(id);
+  if (t) return t.ac.abort(STOPPED_WEB), true;
   const e = [...running].find((x) => x.msgId === id);
   e?.interrupt(STOPPED_WEB);
   return !!e;
@@ -295,7 +298,7 @@ export function stopJob(id: string): boolean {
 const running = new Set<InFlight>();
 
 /** 有没有作业在跑（含试跑）：桌面版自动更新要等它们跑完才重启。判定那一两秒还没进 running，不算 */
-export const busy = (): boolean => running.size > 0 || testAborts.size > 0;
+export const busy = (): boolean => running.size > 0 || tests.size > 0;
 let stopped = false;
 
 /**
@@ -308,8 +311,10 @@ export function drain(timeoutMs = 10_000): Promise<void> {
   stopped = true;
   const all = [...running];
   for (const e of all) e.interrupt(SHUTDOWN);
+  const ts = [...tests.values()];
+  for (const t of ts) t.ac.abort(SHUTDOWN);
   return Promise.race([
-    Promise.allSettled(all.map((e) => e.settled)).then(() => {}),
+    Promise.allSettled([...all.map((e) => e.settled), ...ts.map((t) => t.settled)]).then(() => {}),
     new Promise<void>((r) => setTimeout(r, timeoutMs).unref()),
   ]);
 }
@@ -324,6 +329,8 @@ export interface Deps {
   downloadImage: typeof downloadImage;
   sendText: typeof sendText;
   getMessage: typeof getMessage;
+  /** 「再跑一次」取回原消息（身份显式传，两条路共用） */
+  fetchMessage: typeof fetchMessage;
   judge: typeof callJudge;
   /** 流式卡片（只有机器人用）。@我 那条路不碰它 */
   kit: Kit;
@@ -331,7 +338,7 @@ export interface Deps {
   topic: { list: typeof topicMessages; image: typeof downloadImage };
 }
 const REAL: Deps = {
-  runAgent, replyCard, updateCard, deleteMessage, threadIdOf, downloadImage, sendText, getMessage, judge: callJudge, kit,
+  runAgent, replyCard, updateCard, deleteMessage, threadIdOf, downloadImage, sendText, getMessage, fetchMessage, judge: callJudge, kit,
   topic: { list: topicMessages, image: downloadImage },
 };
 
@@ -412,7 +419,7 @@ export function checkHealth(cfg: Scope, db: Db, chatId: string, project: string,
  * （session 从哪来见 rememberThread）。群里是"在同一个话题里再 @我"，私聊是"引用我那张卡片"。
  * 对不上 = 新问题、新 session，哪怕同一个会话里还有别的在跑。那个 session 还在跑就接棒 —— 见 InFlight。
  */
-export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, deps: Deps = REAL, mode: ModeName = 'user'): Promise<void> {
+export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, deps: Deps = REAL, mode: ModeName = 'user', rerun = false): Promise<void> {
   const isBot = mode === 'bot';
   const q = m.content;
   const who = m.sender.name ?? '?';
@@ -421,6 +428,8 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
   // 先认领再排队。水位那套没了，这张表是唯一的去重依据 —— 而且现在每轮都会把
   // 重叠窗口里的消息重新捞一遍，注定有一大批是认领过的，所以 dup 不再打日志
   // （它从"异常信号"变成了"稳态"）。
+  // 重跑：先忘掉处理过它，不然认领不上
+  if (rerun) db.forget(m.message_id);
   if (!db.claim({ msgId: m.message_id, chatId: m.chat_id, who, q })) return;
 
   // 模板没配项目 = 不知道该在哪个仓库里查。这不是能"跑一下看看"的情况，
@@ -437,7 +446,8 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
 
   // **先判要不要回，再动别的**：判了不回的不该把同一个 session 上在跑的掐掉
   startJob({ id: m.message_id, chatId: m.chat_id, who, q, project, mode });
-  const verdict = await judgeFor(cfg, m, !!inherited, deps.judge, isBot ? bot?.ids : undefined);
+  // 重跑不判定：人都点了「再跑一次」了
+  const verdict = rerun ? undefined : await judgeFor(cfg, m, !!inherited, deps.judge, isBot ? bot?.ids : undefined);
   if (verdict) {
     db.setReason(m.message_id, reasonText(verdict));
     setReason(m.message_id, reasonText(verdict));
@@ -493,7 +503,11 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
   // 开出来**马上**记映射，不等跑完 —— 跑着的时候话题里就有人追问，得能对上这个 session。
   // 卡片和 session 两样都齐了才记得上：@我 开卡片时 session 早有了；@机器人 卡片先发，等 init 再记一次
   const remember = () => {
-    remembered = Promise.all([remembered, stream.open()]).then(() => rememberThread(db, stream, deps.threadIdOf), () => {});
+    remembered = Promise.all([remembered, stream.open()]).then(() => {
+      // 卡片记下来：进程死在半路的话，下次启动靠它补成「已中断」（见 closeOrphans）
+      if (stream.cardId) db.setCard(m.message_id, stream.cardId, stream instanceof KitStream ? stream.entity : undefined);
+      return rememberThread(db, stream, deps.threadIdOf);
+    }, () => {});
   };
   const openThread = () => {
     if (posted) return;
@@ -529,9 +543,11 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
 
   if (inherited) log(`接着 session ${inherited.slice(0, 8)} 问${prev ? '（接棒）' : ''}`);
 
+  /** CC 的结论。卡片没发出去时留着，「重发到飞书」靠它 —— 不用重跑 */
+  let answer = '';
   try {
     entry.started = true; // 从现在起它才"掐得动"
-    let { text, ok } = await run(inherited);
+    let { text, ok, error } = await run(inherited);
 
     // session 不在了（被清理、换机器）：忘掉它，从零重跑一次。
     // 不这么做的话这个话题会永远撞同一堵墙 —— 每次追问都失败，还查不出原因。
@@ -539,8 +555,9 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
     if (!interrupted && anchor && inherited && !ok && stream.silent) {
       log(`session ${inherited.slice(0, 8)} 不在了，从零重跑`);
       db.dropSession(anchor);
-      ({ text, ok } = await run());
+      ({ text, ok, error } = await run());
     }
+    answer = text; // 下面开话题 / 改卡片失败也得留着
 
     // 被掐了（同会话来了新消息 / 停机）：**不当作失败**。卡片留一行说明就收工，上下文交给
     // 接棒那次（它 `--resume` 的就是这个 session）。卡片没开过的话，finish 什么都不做。
@@ -578,13 +595,20 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
     }
 
     await stream.finish(text, ok);
-    db.settle(m.message_id, ok ? 'done' : 'failed', text, ok ? undefined : 'agent 非正常结束', stream.session);
-    finishJob(m.message_id, ok ? { status: 'done', answer: text } : { status: 'failed', answer: text, error: 'agent 非正常结束' });
-    log(`answered ${m.message_id}`);
+    // 收尾那帧没改上，群里看到的就不是结论：不算成功
+    const sendError = stream.error;
+    const failure = !ok ? (error ? `agent 非正常结束：${error}` : 'agent 非正常结束') : sendError ? `飞书卡片没改上：${sendError}` : undefined;
+    const status = failure ? 'failed' : 'done';
+    db.settle(m.message_id, status, text, failure, stream.session, sendError);
+    finishJob(m.message_id, { status, answer: text, error: failure, sendError });
+    log(sendError ? `answered ${m.message_id}，但卡片没改上：${sendError}` : `answered ${m.message_id}`);
   } catch (e: any) {
     log(`investigate failed ${m.message_id}: ${e.message}`);
-    db.settle(m.message_id, 'failed', undefined, e.message, stream.session);
-    finishJob(m.message_id, { status: 'failed', error: e.message });
+    // 要开话题却没开出来 = 卡片根本没发出去
+    const sendError = posted && !stream.opened ? e.message : undefined;
+    const failure = sendError ? `飞书卡片没发出去：${sendError}` : e.message;
+    db.settle(m.message_id, 'failed', answer || undefined, failure, stream.session, sendError);
+    finishJob(m.message_id, { status: 'failed', answer: answer || undefined, error: failure, sendError });
     await stream.finish(`中断：${e.message}`, false);
   } finally {
     await remembered;
@@ -669,7 +693,10 @@ export function runTest(
   log(`test ${id}: ${o.prompt.slice(0, 60)} @ ${expandProject(project)}${o.resume ? ` (resume ${o.resume.slice(0, 8)})` : ''}`);
 
   const ac = new AbortController();
-  testAborts.set(id, ac);
+  let settle!: () => void;
+  tests.set(id, { ac, settled: new Promise<void>((r) => { settle = r; }) });
+  /** 被谁掐的：web 上点「终止」还是停机（abort 带的原因） */
+  const stop = (): Stop => (ac.signal.reason as Stop | undefined)?.note ? ac.signal.reason : STOPPED_WEB;
   const stream = new CardStream(async () => {
     if (!cfg.me) throw new Error('飞书还没登录（lark-cli），认不出你是谁');
     return sendCard(cfg.me, thinkingCard('试跑', o.prompt));
@@ -683,8 +710,8 @@ export function runTest(
       const opened = stream.open();
       opened.then(() => markPosted(id), () => {});
       try {
-        let ok: boolean;
-        ({ text, ok } = await runAgent({
+        let ok: boolean, why: string | undefined;
+        ({ text, ok, error: why } = await runAgent({
           signal: ac.signal,
           project,
           prompt: o.prompt,
@@ -692,30 +719,71 @@ export function runTest(
           systemPrompt: promptFor(cfg, o.chatId),
           onEvent: (e) => { checkHealth(cfg, db, o.chatId, project, e, id, sendText); pushEvent(id, e); stream.push(e); },
         }));
-        if (ac.signal.aborted) error = STOPPED_WEB.error;
-        else if (!ok) error = 'agent 非正常结束';
+        if (ac.signal.aborted) error = stop().error;
+        else if (!ok) error = why ? `agent 非正常结束：${why}` : 'agent 非正常结束';
       } catch (e: any) {
         log(`test failed ${id}: ${e.message}`);
         pushEvent(id, { kind: 'done', ok: false, text: '' });
         error = e.message;
       }
       // 卡片发没发出去、改没改上，都算进这次试跑的结果 —— 试跑就是来验这条路的
+      let sendError: string | undefined;
       try {
         await opened;
-        await stream.finish(ac.signal.aborted ? STOPPED_WEB.note : text, !error);
+        await stream.finish(ac.signal.aborted ? stop().note : text, !error);
         if (stream.error) throw new Error(`发出去了，但没改上：${stream.error}`);
       } catch (e: any) {
         log(`test card failed ${id}: ${e.message}`);
+        sendError = e.message;
         error = [error, `飞书卡片：${e.message}`].filter(Boolean).join('；');
       }
-      finishJob(id, error ? { status: 'failed', answer: text, error } : { status: 'done', answer: text });
+      finishJob(id, error ? { status: 'failed', answer: text, error, sendError } : { status: 'done', answer: text });
     } finally {
-      testAborts.delete(id);
+      tests.delete(id);
       pool.release();
+      settle();
     }
   })();
 
   return id;
+}
+
+/**
+ * web UI 上真消息的「再跑一次」：按原入口重新处理一遍 —— 回到原会话、用原来的身份（@我 是我本人，@机器人 是机器人），
+ * 不再判定。原消息挂着话题 / 引用了卡片的，照常接上那个 session（跑断了的接着跑）。
+ * 只等到取回原消息就返回，后面在后台跑，web UI 照常看事件流
+ */
+export async function rerunMessage(cfg: Config, pool: Pool, db: Db, msgId: string, mode: ModeName, deps?: Deps): Promise<void> {
+  if ([...running].some((e) => e.msgId === msgId)) throw new Error('这条还在跑，等它跑完或者先终止');
+  if (mode === 'bot' && !bot) throw new Error('@机器人 没开（或者认不出机器人），没法以机器人身份回');
+  const d = deps ?? (mode === 'bot' ? BOT : REAL);
+  const m = await d.fetchMessage(msgId, mode);
+  if (!m) throw new Error('原消息取不到了：被撤回了，或者没权限');
+  log(`web 重跑 ${msgId}（${mode === 'bot' ? '@机器人' : '@我'}）`);
+  investigate(scopeOf(cfg, mode), pool, db, m, d, mode, true).catch((e: any) => log(`rerun failed ${msgId}: ${e.message}`));
+}
+
+/**
+ * 启动时补收尾：上一轮进程没走 drain 就没了（kill、崩溃、关终端、连按两下 Ctrl+C），卡片会一直停在「处理中」。
+ * 把这些卡片补成跟正常停机一样的「已中断」。群里的人看到的是结论，要重跑在 web UI 上点「再跑一次」
+ */
+export async function closeOrphans(db: Db, mode: ModeName, deps: Deps = mode === 'bot' ? BOT : REAL): Promise<void> {
+  for (const o of db.orphans) {
+    const card = buildCard({ who: o.who, q: o.q, status: 'failed', text: SHUTDOWN.note, process: '', tools: 0, session: o.session, chrono: mode === 'bot' });
+    try {
+      if (o.entity) {
+        // 流式卡片的 sequence 要比上回用过的都大，上回用到几不知道（每次跑从 1 数起）：拿秒级时间戳，远大于一次跑的计数
+        const seq = Math.floor(Date.now() / 1000);
+        await deps.kit.streaming(o.entity, false, seq).catch(() => {}); // 开着 10 分钟会自己关，关过了这步会报错，不管
+        await deps.kit.update(o.entity, card, seq + 1);
+      } else {
+        await deps.updateCard(o.card, card);
+      }
+      log(`补收尾 ${o.msgId}：上回没跑完，卡片改成「已中断」`);
+    } catch (e: any) {
+      log(`补收尾失败 ${o.msgId}: ${e.message}`);
+    }
+  }
 }
 
 /* ---------- @机器人：长连接收消息，秒级 ---------- */

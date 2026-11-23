@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { bin, killTree } from './bins.ts';
+import { expandProject } from './config.ts';
 
 /** MCP server 的连接状态，原样取自 claude 的 init 事件（实测 `connected`；别的值不写死，不是 connected 就算有问题） */
 export interface McpStatus { name: string; status: string }
@@ -32,6 +33,8 @@ export interface RunResult {
   text: string;
   sessionId?: string;
   ok: boolean;
+  /** 没跑成时 claude 的报错（stderr 最后一行），给作业详情看。不然界面上只有「中断 / 没有输出」，猜不到为什么 */
+  error?: string;
 }
 
 /** tool_result 的 content 可能是字符串，也可能是 block 数组 */
@@ -64,7 +67,8 @@ export function runAgent(o: RunOptions): Promise<RunResult> {
       ...(o.systemPrompt.trim() ? ['--append-system-prompt', o.systemPrompt] : []),
     ];
 
-    const child = spawn(bin('claude'), args, { cwd: o.project, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    // 项目可能写成 ~/xxx（模板里、试跑框里都是原样）：spawn 不认 ~，目录不存在报的是「spawn claude ENOENT」，看着像 claude 没装
+    const child = spawn(bin('claude'), args, { cwd: expandProject(o.project), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
 
     o.signal?.addEventListener('abort', () => {
       killTree(child);
@@ -137,7 +141,7 @@ export function runAgent(o: RunOptions): Promise<RunResult> {
       const text = (resultText || texts.join('')).trim();
       if (!ok && !text && stderr) process.stderr.write(`[agent] ${stderr.slice(-500)}\n`);
       o.onEvent?.({ kind: 'done', ok, text, sessionId });
-      resolve({ text, sessionId, ok });
+      resolve({ text, sessionId, ok, error: ok ? undefined : stderr.trim().split('\n').pop() || undefined });
     };
     child.on('error', (e) => {
       stderr += `${e.message}\n`;

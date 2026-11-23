@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  anchorOf, claudeArgsFor, drain, stopJob, imageKeys, investigate, isForMe, isSkip, shouldOpenThread, sinceFor, onBotMessage,
+  anchorOf, claudeArgsFor, drain, stopJob, imageKeys, investigate, isForMe, isSkip, shouldOpenThread, sinceFor, onBotMessage, rerunMessage, closeOrphans,
   type Deps,
 } from './pipeline.ts';
 import { readFileSync, statSync, existsSync } from 'node:fs';
@@ -514,6 +514,79 @@ test('@机器人：转给我的私聊说清楚是找的机器人', async () => {
   const cfg = fullCfg('oc_x'); cfg.templates.t.judge = '判一下';
   await onBotMessage(cfg, new Pool(3), tmpDb(), botEv({ message_id: 'om_ba', chat_type: 'p2p' }), BOT, f.deps);
   assert.match(f.dms[0], /张三 在私聊找机器人，它没回/);
+});
+
+test('再跑一次：回原消息再跑一遍、不再判定；还在跑的不让重跑', async () => {
+  const db = tmpDb();
+  const fc = fullCfg('oc_r');
+  fc.templates.t = { ...fc.templates.t, judge: '判一下' };
+  const m = msg({ message_id: 'om_r', chat_id: 'oc_r' });
+  let release!: () => void;
+  const f = fake(async (o, n) => {
+    if (n === 2) await new Promise<void>((r) => { release = r; });
+    emit(o, { kind: 'init', sessionId: `s${n}` }, { kind: 'text', text: '答' });
+    return { text: '答', ok: true, sessionId: `s${n}` };
+  });
+  f.deps.fetchMessage = async (id) => (id === 'om_r' ? m : undefined);
+  await investigate({ ...fc, ...fc.user }, new Pool(3), db, m, f.deps);
+  await investigate({ ...fc, ...fc.user }, new Pool(3), db, m, f.deps);
+  assert.equal(f.calls.length, 1, '正常路径：认领过的不再回');
+
+  await rerunMessage(fc, new Pool(3), db, 'om_r', 'user', f.deps);
+  while (f.calls.length < 2) await tick();
+  await assert.rejects(rerunMessage(fc, new Pool(3), db, 'om_r', 'user', f.deps), /还在跑/);
+  release();
+  while (db.recent(1)[0].status === 'running') await tick();
+  assert.deepEqual(f.replies, ['om_r', 'om_r'], '两次都回在原消息下面');
+  assert.equal(f.judged(), 1, '重跑不判定');
+  assert.equal(db.recent(1)[0].status, 'done');
+  await assert.rejects(rerunMessage(fc, new Pool(3), db, 'om_gone', 'user', f.deps), /取不到/);
+});
+
+test('进程死在半路（没走停机）：下次开库认出卡片还挂着的作业，启动时把卡片补成「已中断」', async () => {
+  for (const mode of ['bot', 'user'] as const) {
+    const dir = mkdtempSync(join(tmpdir(), 'lcr-orphan-'));
+    const db = new Db(dir);
+    const f = fake(async (o) => { emit(o, { kind: 'init', sessionId: 's1' }, { kind: 'tool', id: 't', name: 'Bash' }); return untilAborted(o); });
+    const finals: string[] = [];
+    f.deps.kit.update = async (_id, card) => { finals.push(JSON.stringify(card)); };
+    f.deps.updateCard = async (_id, card) => { finals.push(JSON.stringify(card)); };
+    const id = `om_dead_${mode}`;
+    const job = investigate(testCfg('oc_o'), new Pool(3), db, msg({ message_id: id, chat_id: 'oc_o' }), f.deps, mode);
+    while (!f.replies.length) await tick();
+    await tick();
+
+    // 「重启」：不 drain，直接重新开库
+    const after = new Db(dir);
+    assert.deepEqual(after.orphans.map((o) => [o.msgId, o.card, o.entity]), [[id, `card-${id}`, mode === 'bot' ? 'kc1' : undefined]]);
+    assert.equal(after.recent(1)[0].status, 'failed');
+    finals.length = 0;
+    await closeOrphans(after, mode, f.deps);
+    assert.equal(finals.length, 1, mode);
+    assert.match(finals[0], /服务重启了，这次没跑完/);
+
+    stopJob(id);
+    await job;
+  }
+});
+
+test('卡片收尾那帧没改上：不算成功，记下原因，结论留着（「重发到飞书」用）', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => {
+    emit(o, { kind: 'init', sessionId: 's1' }, { kind: 'tool', id: 't', name: 'Bash' }, { kind: 'text', text: '结论在这' });
+    return { text: '结论在这', ok: true, sessionId: 's1' };
+  });
+  f.deps.updateCard = async (_id, card) => { if (JSON.stringify(card).includes('已完成')) throw new Error('网络抖了'); };
+  await investigate(testCfg('oc_send'), new Pool(3), db, msg({ message_id: 'om_send', chat_id: 'oc_send' }), f.deps);
+  const row = db.get('om_send')!;
+  assert.deepEqual([row.status, row.sendError, row.answer], ['failed', '网络抖了', '结论在这']);
+  assert.match(row.error ?? '', /飞书卡片没改上/);
+
+  // 卡片根本没发出去（开话题就挂了）也一样，结论照样留着
+  f.deps.replyCard = async () => { throw new Error('没权限'); };
+  await investigate(testCfg('oc_send'), new Pool(3), db, msg({ message_id: 'om_send2', chat_id: 'oc_send' }), f.deps);
+  const r2 = db.get('om_send2')!;
+  assert.deepEqual([r2.status, r2.sendError, r2.answer], ['failed', '没权限', '结论在这']);
 });
 
 test('停机：在跑的作业被掐掉，卡片收成「已中断」；重跑那次被掐也不多发空卡', async () => {

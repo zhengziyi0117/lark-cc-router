@@ -13,4 +13,5 @@ async function shutdown(sig: string): Promise<void> {
   await app.stop();
   process.exit(0);
 }
-for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => void shutdown(sig));
+// SIGHUP：直接关掉终端窗口。不接的话进程当场没了，群里的卡片停在「处理中」（下次启动 closeOrphans 也会补）
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, () => void shutdown(sig));

@@ -27,6 +27,8 @@ export interface Job {
   reason?: string;
   /** 群里那个话题开了没有。判明"确实要排查"之前是 false —— 见 pipeline 的 shouldOpenThread */
   posted?: boolean;
+  /** 飞书卡片没发出去 / 收尾那帧没改上的原因。有它就不算成功：web UI 上那个按钮变成「重发到飞书」 */
+  sendError?: string;
 }
 
 export type Msg =
@@ -78,7 +80,7 @@ export function pushEvent(id: string, ev: AgentEvent): void {
   emitter.emit('m', { type: 'ev', id, ev: stamped } satisfies Msg);
 }
 
-export function finishJob(id: string, patch: Partial<Pick<Job, "status" | "answer" | "error">>): void {
+export function finishJob(id: string, patch: Partial<Pick<Job, "status" | "answer" | "error" | "sendError" | "posted">>): void {
   const job = jobs.get(id);
   if (!job) return;
   Object.assign(job, patch, { endedAt: Date.now() });

@@ -486,7 +486,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export class KitStream extends CardStream {
   private readonly kit: Kit;
   private readonly send: (content: unknown) => Promise<string>;
-  private entity?: string;
+  /** CardKit 卡片实体 id。退回普通卡片时没有 */
+  entity?: string;
   private seq = 0;
   private sent = { skel: '', body: '', proc: '' };
   /** CardKit 用不了，退回普通卡片 */
@@ -523,7 +524,7 @@ export class KitStream extends CardStream {
     if (this.plain) return super.write(status);
     const card = this.frame(status);
     try {
-      if (status !== 'running') return void await this.last(card);
+      if (status !== 'running') { await this.last(card); this.error = undefined; return; }
       const now = parts(card);
       if (now.skel !== this.sent.skel) {
         await this.kit.update(this.entity!, card, ++this.seq);
@@ -532,7 +533,9 @@ export class KitStream extends CardStream {
         if (now.proc !== this.sent.proc) await this.type(PROC_ID, now.proc);
       }
       this.sent = now;
+      this.error = undefined;
     } catch (e: any) {
+      this.error = e.message;
       console.log(`card update failed: ${e.message}`);
     }
   }

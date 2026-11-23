@@ -600,7 +600,8 @@ const projName = (p) => String(p || '').replace(/^.*\//, '') || '—';
 function dur(ms) { return ms < 950 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms / 1000) + 's'; }
 function clock(t) { return new Date(t).toLocaleTimeString('zh-CN', { hour12: false }); }
 function fullTime(t) { return new Date(t).toLocaleString('zh-CN', { hour12: false }); }
-const st = (j) => STATUS_CN[j.status] || j.status;
+// 卡片没发出去 / 没改上：CC 跑完了也不算完成，群里看到的不是结论
+const st = (j) => (j.sendError && j.status !== 'running' ? '没发出去' : STATUS_CN[j.status] || j.status);
 /** 群头像。加载不出来（CDN 挂了、URL 过期）就退回首字色块 */
 function avatarNode(c, big) {
   const w = el('span', 'gav' + (big ? ' big' : ''));
@@ -800,6 +801,11 @@ function infoToggle(k, pairs) {
 
 /** 飞书那边到底有没有那张卡片 —— 闲聊是一条都不发的，得让人看出来 */
 function threadChip(j) {
+  if (j.sendError && j.status !== 'running') {
+    const p = el('span', 'pill failed', j.posted ? '卡片没改上' : '卡片没发出');
+    p.title = j.sendError;
+    return p;
+  }
   if (j.test) return j.posted ? el('span', 'pill done', '已发给自己')
     : el('span', 'pill' + (j.status === 'running' ? '' : ' failed'), j.status === 'running' ? '卡片发送中' : '卡片没发出');
   if (j.posted) return el('span', 'pill done', '已发出');
@@ -861,8 +867,34 @@ function renderDetail() {
     };
     tb.appendChild(stop);
   }
-  const again = el('button', null, '再跑一次');
-  again.onclick = () => openRun(j);
+  // 结论有了、只是卡片没发出去：同一个按钮变成「重发到飞书」，不重跑。
+  // 飞书里来的「再跑一次」：回原会话、用原身份重跑（@我 是你本人，@机器人 是机器人）。试跑的没有原会话，照旧弹试跑框发给自己
+  const resendable = !!(j.sendError && j.answer && j.status !== 'running');
+  const again = el('button', resendable ? 'primary' : null, resendable ? '重发到飞书' : '再跑一次');
+  if (resendable) {
+    again.title = '结论已经有了，只是卡片没发出去 / 没改上：把结论重新发一张卡片' + (j.test ? '给你自己' : '到原会话') + '，不重跑';
+    again.onclick = async () => {
+      if (!j.test && !confirm(`把结论重新发到${isP2P(j.chatId) ? '原私聊' : '原话题'}里？`)) return;
+      again.disabled = true;
+      const d = await post('/api/resend', { id: j.id, mode: j.mode });
+      if (d.error) { alert(d.error); again.disabled = false; }
+    };
+  } else if (j.test) again.onclick = () => openRun(j);
+  else {
+    const where = isP2P(j.chatId) ? '原私聊' : '原话题';
+    const as = j.mode === 'bot' ? '以机器人身份' : '以你的身份';
+    again.title = `${as}在${where}里重新回一次（不再判定）`;
+    again.onclick = async () => {
+      if (!confirm(`${as}在${where}里重新回一次？`)) return;
+      again.disabled = true;
+      const d = await post('/api/rerun', { id: j.id, mode: j.mode });
+      if (d.error) { alert(d.error); again.disabled = false; }
+    };
+    const t = el('button', 'ghost', '试跑');
+    t.title = '改一改问题 / 项目再跑，卡片只发给你自己';
+    t.onclick = () => openRun(j);
+    tb.appendChild(t);
+  }
   tb.appendChild(again);
   h.appendChild(tb);
 

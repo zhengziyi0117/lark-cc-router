@@ -2,11 +2,11 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import { claudeDir } from './bins.ts';
 import { resolve } from 'node:path';
-import { listChats, chatActivity, type Chat } from './lark.ts';
-import { snapshot, subscribe, broadcast, type Job } from './bus.ts';
+import { listChats, chatActivity, fetchMessage, replyCard, sendCard, type Chat } from './lark.ts';
+import { snapshot, subscribe, broadcast, finishJob, type Job } from './bus.ts';
 import { CardBuilder, buildCard, type CardStatus } from './card.ts';
 import type { Db, Handled } from './db.ts';
-import { runTest, judgeFor, stopJob, log, botInfo } from './pipeline.ts';
+import { runTest, rerunMessage, judgeFor, stopJob, log, botInfo } from './pipeline.ts';
 import { DEFAULT_JUDGE_PROMPT, DECISION_CN, pingGateway } from './judge.ts';
 import type { Pool } from './store.ts';
 import { status as setupStatus, route as setupRoute } from './setup/index.ts';
@@ -77,6 +77,8 @@ async function handle(req: any, res: ServerResponse, cfg: Config, db: Dbs, pool:
   if (path === '/api/chat' && post) return void setChat(await readBody(req), res, cfg, pool);
   if (path === '/api/run' && post) return void run(await readBody(req), res, cfg, pool, db);
   if (path === '/api/stop' && post) return void stop(await readBody(req), res);
+  if (path === '/api/rerun' && post) return void rerun(await readBody(req), res, cfg, pool, db);
+  if (path === '/api/resend' && post) return void resend(await readBody(req), res, cfg, db);
   if (path === '/api/judge' && post) return void judge(await readBody(req), res, cfg);
   if (path === '/api/gateway-test' && post) return void gatewayTest(await readBody(req), res, cfg);
 
@@ -196,7 +198,7 @@ function jobFromRow(h: Handled, mode: ModeName): Job {
     id: h.msgId, chatId: h.chatId, who: h.who, q: h.q, project: '', mode,
     status: h.status, answer: h.answer, error: h.error,
     events: [], startedAt: h.startedAt, endedAt: h.endedAt, session: h.session, reason: h.reason,
-    posted: h.status !== 'skipped',
+    posted: h.status !== 'skipped', sendError: h.sendError,
   };
 }
 
@@ -354,6 +356,54 @@ function run(body: any, res: ServerResponse, cfg: Config, pool: Pool, db: Dbs): 
   if (!existsSync(expandProject(project))) return void json(res, 400, { error: `项目路径不存在：${project}` });
 
   json(res, 200, { id: runTest(sc, pool, db.user, { chatId, project, prompt, resume: resume || undefined }) });
+}
+
+/** 真消息的「再跑一次」：回原会话、用原身份重新处理（见 rerunMessage）。试跑的没有原会话，还是走 /api/run */
+async function rerun(body: any, res: ServerResponse, cfg: Config, pool: Pool, db: Dbs): Promise<void> {
+  const id = String(body?.id ?? '');
+  const mode: ModeName = body?.mode === 'bot' ? 'bot' : 'user';
+  if (!/^om_[\w-]+$/.test(id)) return void json(res, 400, { error: '只有飞书里来的作业能回原会话重跑' });
+  try {
+    await rerunMessage(cfg, pool, db[mode], id, mode);
+    json(res, 200, { ok: true });
+  } catch (e: any) {
+    json(res, 409, { error: e.message });
+  }
+}
+
+/**
+ * 「重发到飞书」：CC 跑完了，只是卡片没发出去 / 收尾那帧没改上。不重跑，把结论重新发成一张新卡片 ——
+ * 飞书来的回到原会话（原身份），试跑的发给自己。发出去了这条才算成功
+ */
+async function resend(body: any, res: ServerResponse, cfg: Config, db: Dbs): Promise<void> {
+  const id = String(body?.id ?? '');
+  const mode: ModeName = body?.mode === 'bot' ? 'bot' : 'user';
+  const live = snapshot().find((j) => j.id === id);
+  const row = live ? undefined : db[mode].get(id);
+  const job = live ?? (row && jobFromRow(row, mode));
+  if (!job) return void json(res, 404, { error: '找不到这条作业' });
+  if (job.status === 'running') return void json(res, 409, { error: '还在跑，等它跑完' });
+  if (!job.answer) return void json(res, 409, { error: '没有结论可发，用「再跑一次」' });
+  // 只是卡片的问题（CC 本身跑成了）就是「已完成」；CC 也没跑完就照实发「已中断」
+  const card = cardForJob(job, !job.error || job.error.startsWith('飞书卡片') ? 'done' : 'failed');
+  try {
+    if (job.test) {
+      if (!cfg.me) throw new Error('飞书还没登录（lark-cli），认不出你是谁');
+      await sendCard(cfg.me, card);
+    } else {
+      if (!/^om_[\w-]+$/.test(id)) throw new Error('消息 id 不对');
+      const m = await fetchMessage(id, mode);
+      if (!m) throw new Error('原消息取不到了：被撤回了，或者没权限');
+      db[mode].delivered(id, await replyCard(id, card, m.chat_type !== 'p2p', mode));
+    }
+  } catch (e: any) {
+    return void json(res, 502, { error: `还是没发出去：${e.message}` });
+  }
+  log(`web 重发 ${id}`);
+  const patch = { status: 'done' as const, error: undefined, sendError: undefined, posted: true };
+  if (live) finishJob(id, patch);
+  else { const { events, ...meta } = { ...job, ...patch }; broadcast({ type: 'job', job: meta }); } // 历史作业不在内存里，直接推给页面
+  json(res, 200, { ok: true });
 }
 
 /** 后台终止一个在跑的作业（群里 @ 的或试跑的） */

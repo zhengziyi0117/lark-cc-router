@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { bin, killTree } from './bins.ts';
@@ -163,6 +164,20 @@ export async function getMessage(messageId: string, as: As = 'user'): Promise<Me
 }
 
 /**
+ * 「再跑一次」用：按 id 把原消息取回来，补上 mget 不给的两样 —— 群还是单聊（单聊回复不开话题），
+ * 引用了谁（私聊追问靠它接回上次的 session，见 pipeline 的 anchorOf）
+ */
+export async function fetchMessage(messageId: string, as: As): Promise<Message | undefined> {
+  const m = await getMessage(messageId, as);
+  if (!m) return undefined;
+  const [chat, raw] = await Promise.all([
+    cli(['api', 'GET', `/open-apis/im/v1/chats/${m.chat_id}`, '--as', as]),
+    cli(['api', 'GET', `/open-apis/im/v1/messages/${messageId}`, '--as', as]),
+  ]);
+  return { ...m, chat_type: chat.data?.chat_mode === 'p2p' ? 'p2p' : 'group', reply_to: raw.data?.items?.[0]?.parent_id || undefined };
+}
+
+/**
  * 一个话题里的全部消息，按顺序：根消息在前（位置记 -1），后面是回复。
  * `+threads-messages-list` 只给回复、不带根消息；根 id 只有原始接口给（格式化过的 mget / 搜索结果都把 root_id 去掉了）。
  *
@@ -232,7 +247,10 @@ export async function replyCard(messageId: string, card: unknown, thread = true,
     '--message-id', messageId,
     '--msg-type', 'interactive',
     '--content', JSON.stringify(card),
-    '--idempotency-key', `card-${as}-${messageId}`,
+    // 一次调用一个键：lark-cli 自己重试时不会发出两张。不能按消息 id 固定 —— 飞书拿到同一个键直接返回第一次那条消息，
+    // 「再跑一次」就拿回了上回的旧卡片、新卡片根本没发（机器人的流式卡片于是一直停在「处理中」）。
+    // 同一条消息别回两遍是 db.claim 的事。飞书限 50 字符，UUID 36
+    '--idempotency-key', randomUUID(),
   ];
   if (thread) args.push('--reply-in-thread');
   const r = await cli(args);

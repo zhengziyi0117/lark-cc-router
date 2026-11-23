@@ -4,7 +4,7 @@ import { loadConfig, scopeOf, type Config } from './config.ts';
 import { userAuth } from './lark.ts';
 import { Pool } from './store.ts';
 import { Db } from './db.ts';
-import { pollGroups, drain, log, startBot } from './pipeline.ts';
+import { pollGroups, drain, log, startBot, closeOrphans } from './pipeline.ts';
 import { startWeb } from './web.ts';
 import { subscribe } from './bus.ts';
 
@@ -67,6 +67,9 @@ export async function start(o: { strict?: boolean; port?: number } = {}): Promis
   const dbs = { user: new Db(cfg.stateDir), bot: new Db(cfg.stateDir, 'bot.db') };
   // 并发上限是共用的：两边跑的是同一台机器上的 CC
   const pool = new Pool(cfg.maxJobs);
+  // 上回没走正常停机就没了的作业：卡片补成「已中断」。不等它，飞书慢也别拖住启动
+  void closeOrphans(dbs.user, 'user');
+  void closeOrphans(dbs.bot, 'bot');
 
   let missing = await preflight(cfg);
   if (missing.length) {

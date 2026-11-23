@@ -16,6 +16,8 @@ export interface Handled {
   session?: string;
   /** 判定的结论 + 理由（"不用回：MR 通知"）。没配判定的模板没有 */
   reason?: string;
+  /** 飞书卡片没发出去 / 没改上（见 bus 的 Job.sendError） */
+  sendError?: string;
 }
 
 /**
@@ -27,8 +29,16 @@ export interface Handled {
  * **两个入口各一个库**（@我 是 history.db，@机器人 是 bot.db）：话题 → session 的锚点、去重、
  * 历史各管各的 —— 机器人的卡片和我的卡片是两条消息，混在一张表里只会互相认错。
  */
+/** 上一轮进程没收尾就没了的作业里、卡片已经发出去的那些（见 Db.orphans） */
+export interface Orphan { msgId: string; who: string; q: string; session?: string; card: string; entity?: string }
+
 export class Db {
   private readonly db: DatabaseSync;
+  /**
+   * 上一轮进程死在半路（kill、崩溃、关终端、连按两下 Ctrl+C —— 没走 drain）、卡片还停在「处理中」的作业。
+   * 开库时取一次，pipeline 的 closeOrphans 拿去把卡片补成「已中断」
+   */
+  readonly orphans: Orphan[];
 
   constructor(dir: string, file = 'history.db') {
     mkdirSync(dir, { recursive: true });
@@ -60,7 +70,10 @@ export class Db {
     `);
     // 老库没有这几列。sqlite 没有 ADD COLUMN IF NOT EXISTS，只能先看一眼
     const cols = new Set((this.db.prepare(`PRAGMA table_info(handled)`).all() as any[]).map((c) => c.name));
-    for (const c of ['session_id', 'reason']) if (!cols.has(c)) this.db.exec(`ALTER TABLE handled ADD COLUMN ${c} TEXT`);
+    // card_msg / card_entity：发出去的卡片（消息 id；机器人的流式卡片还有卡片实体 id），死在半路时启动后靠它补收尾
+    for (const c of ['session_id', 'reason', 'card_msg', 'card_entity', 'send_error']) if (!cols.has(c)) this.db.exec(`ALTER TABLE handled ADD COLUMN ${c} TEXT`);
+    this.orphans = (this.db.prepare(`SELECT msg_id, who, q, session_id, card_msg, card_entity FROM handled WHERE status = 'running' AND card_msg IS NOT NULL`).all() as any[])
+      .map((r) => ({ msgId: r.msg_id, who: r.who, q: r.q, session: r.session_id ?? undefined, card: r.card_msg, entity: r.card_entity ?? undefined }));
     // 上一轮进程死在半路的作业会永远挂在 running，启动时收个尾
     this.db.prepare(`UPDATE handled SET status = 'failed', error = '进程中断', ended_at = ? WHERE status = 'running'`)
       .run(Date.now());
@@ -74,10 +87,29 @@ export class Db {
     return r.changes === 1;
   }
 
-  settle(msgId: string, status: Handled['status'], answer?: string, error?: string, session?: string): void {
+  /** 卡片发出去了就记下：进程死在半路的话，下次启动靠它把卡片补成「已中断」（见 orphans） */
+  setCard(msgId: string, card: string, entity?: string): void {
+    this.db.prepare(`UPDATE handled SET card_msg = ?, card_entity = ? WHERE msg_id = ?`).run(card, entity ?? null, msgId);
+  }
+
+  /** 「再跑一次」：忘掉处理过这条，好让它重新认领。话题 → session 的映射在另一张表，不动，重跑照样接得上 */
+  forget(msgId: string): void {
+    this.db.prepare(`DELETE FROM handled WHERE msg_id = ?`).run(msgId);
+  }
+
+  settle(msgId: string, status: Handled['status'], answer?: string, error?: string, session?: string, sendError?: string): void {
     this.db
-      .prepare(`UPDATE handled SET status = ?, answer = ?, error = ?, ended_at = ?, session_id = ? WHERE msg_id = ?`)
-      .run(status, answer ?? null, error ?? null, Date.now(), session ?? null, msgId);
+      .prepare(`UPDATE handled SET status = ?, answer = ?, error = ?, ended_at = ?, session_id = ?, send_error = ? WHERE msg_id = ?`)
+      .run(status, answer ?? null, error ?? null, Date.now(), session ?? null, sendError ?? null, msgId);
+  }
+
+  /** 「重发到飞书」发出去了：这才算成功，新卡片记成它的卡片 */
+  delivered(msgId: string, card: string): void {
+    this.db.prepare(`UPDATE handled SET status = 'done', error = NULL, send_error = NULL, card_msg = ?, card_entity = NULL WHERE msg_id = ?`).run(card, msgId);
+  }
+
+  get(msgId: string): Handled | undefined {
+    return this.rows(`SELECT * FROM handled WHERE msg_id = ?`, msgId)[0];
   }
 
   /** 判定的结论 + 理由。判完就写，不等跑完 —— 跑到一半重启了也知道当时为什么要回 */
@@ -136,10 +168,11 @@ export class Db {
 
   recent(limit = 50): Handled[] {
     // rowid 兜底：同一毫秒认领的两条，光按 started_at 排不出先后
-    const rows = this.db
-      .prepare(`SELECT * FROM handled ORDER BY started_at DESC, rowid DESC LIMIT ?`)
-      .all(limit) as any[];
-    return rows.map((r) => ({
+    return this.rows(`SELECT * FROM handled ORDER BY started_at DESC, rowid DESC LIMIT ?`, limit);
+  }
+
+  private rows(sql: string, ...args: (string | number)[]): Handled[] {
+    return (this.db.prepare(sql).all(...args) as any[]).map((r) => ({
       msgId: r.msg_id,
       chatId: r.chat_id,
       who: r.who,
@@ -151,6 +184,7 @@ export class Db {
       endedAt: r.ended_at ?? undefined,
       session: r.session_id ?? undefined,
       reason: r.reason ?? undefined,
+      sendError: r.send_error ?? undefined,
     }));
   }
 
