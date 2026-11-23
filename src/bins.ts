@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { HOME_DIR } from './config.ts';
 
 /**
@@ -49,13 +49,31 @@ export function bin(t: Tool): string {
 
 /**
  * 掐掉一个子进程连同它起的子进程。Windows 没有信号：kill() 只杀 claude 本身，它起的 bash、MCP 会留下来，
- * taskkill 不带 /F 对控制台程序又不管用，所以那边一律 /T /F。mac / Linux 照旧发信号，claude 自己会收拾子进程。
+ * taskkill 不带 /F 对控制台程序又不管用，所以那边一律 /T /F。
+ * mac / Linux：先礼 —— SIGTERM 给 claude，它自己会收拾子进程。后兵（force）得整棵树一起 SIGKILL：
+ * claude 的 Bash 命令各自一个进程组，杀 claude 那一组够不着；只杀 claude 的话它们被 launchd 接走，接着跑
  */
 export function killTree(c: ChildProcess, force = false): void {
   if (c.exitCode !== null || c.signalCode !== null || c.pid === undefined) return;
   if (WIN) {
     spawn('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => c.kill());
+  } else if (!force) {
+    c.kill('SIGTERM');
   } else {
-    c.kill(force ? 'SIGKILL' : 'SIGTERM');
+    for (const pid of tree(c.pid)) try { process.kill(pid, 'SIGKILL'); } catch {}
   }
+}
+
+/** pid 和它所有子孙。同步的：进程退出前（exit 事件里）也要能用 */
+function tree(root: number): number[] {
+  const kids = new Map<number, number[]>();
+  try {
+    for (const l of execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' }).trim().split('\n')) {
+      const [pid, ppid] = l.trim().split(/\s+/).map(Number);
+      kids.set(ppid, [...(kids.get(ppid) ?? []), pid]);
+    }
+  } catch {}
+  const all = [root];
+  for (let i = 0; i < all.length; i++) all.push(...(kids.get(all[i]) ?? []));
+  return all;
 }

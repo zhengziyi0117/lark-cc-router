@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { bin, killTree } from './bins.ts';
 import { expandProject } from './config.ts';
 
@@ -45,6 +45,13 @@ function blockText(c: unknown): string {
 }
 
 /**
+ * 还在跑的 claude。服务不管怎么退 —— 连按两下 Ctrl+C、停机收尾超时、桌面版到点硬退 —— 都不能把它们
+ * 留下接着跑（它们手里有 Bash，没人看着还在改东西）。exit 里只能同步，所以直接整棵树 SIGKILL
+ */
+const live = new Set<ChildProcess>();
+process.on('exit', () => { for (const c of live) killTree(c, true); });
+
+/**
  * 跑一次 claude -p，用 stream-json 拿实时事件。
  * sessionId 拿到后可以 --resume 续上下文（同一话题里追问时用）。
  */
@@ -69,6 +76,7 @@ export function runAgent(o: RunOptions): Promise<RunResult> {
 
     // 项目可能写成 ~/xxx（模板里、试跑框里都是原样）：spawn 不认 ~，目录不存在报的是「spawn claude ENOENT」，看着像 claude 没装
     const child = spawn(bin('claude'), args, { cwd: expandProject(o.project), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    live.add(child);
 
     o.signal?.addEventListener('abort', () => {
       killTree(child);
@@ -137,6 +145,7 @@ export function runAgent(o: RunOptions): Promise<RunResult> {
     const finish = () => {
       if (finished) return;
       finished = true;
+      live.delete(child);
       // `||` 不是 `??`：result 可能是空串（模型最后一句是工具调用），那时要用正文块兜底
       const text = (resultText || texts.join('')).trim();
       if (!ok && !text && stderr) process.stderr.write(`[agent] ${stderr.slice(-500)}\n`);

@@ -123,6 +123,9 @@ const { busy } = await import('../src/pipeline.ts');
 
 // 不能在顶层 await whenReady()：ESM 入口的顶层 await 不结束，Electron 就不发 ready，会互相等死
 app.whenReady().then(main).catch((e) => {
+  // 启动还没走完就退出了（开机自启后马上点退出、环境检测那几秒里 Cmd+Q）：后半截碰到已销毁的窗口会抛，
+  // 这不是启动失败。弹框的话，这个模态框挂在已经藏起来的应用上，退出就卡死在这儿
+  if (quitting) return;
   dialog.showErrorBox('启动失败', `${e.message}\n\n日志：${LOG}`);
   app.exit(1);
 });
