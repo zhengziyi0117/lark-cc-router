@@ -153,3 +153,30 @@ test('插件 / 市场操作：名字带奇怪字符、- 开头的地址、没装
   assert.match((await market({ action: 'remove', name: 'nope' }, ctx) as any).error, /没有这个插件市场/);
   assert.match((await routes['POST /api/setup/mcp/logout']({ name: 'x' }, ctx) as any).error, /不认识的 MCP/);
 });
+
+test('飞书：换应用后「我」清空（停下来等重新扫码）；重新扫码换了个人，「我」立刻跟着换、不用重启', { skip: process.platform === 'win32' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lcr-lark-'));
+  // 假 lark-cli：config init 成功；login 先给设备码、再等扫码（直接成功）；auth status 报新登的那个人
+  writeFileSync(join(dir, 'lark-cli'), `#!/bin/sh
+case "$*" in
+  "config init"*) cat >/dev/null; echo '{"ok":true}' ;;
+  *"--no-wait"*) echo '{"device_code":"d1","verification_url":"https://example.com/v","expires_in":60}' ;;
+  *"--device-code"*) echo '{"ok":true}' ;;
+  "auth status"*) echo '{"identities":{"user":{"openId":"ou_new","scope":""}}}' ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+  const prev = process.env.LCR_LARK_CLI;
+  process.env.LCR_LARK_CLI = join(dir, 'lark-cli');
+  try {
+    const cfg = { me: 'ou_old' } as any;
+    assert.deepEqual(await routes['POST /api/setup/lark/app']({ appId: 'cli_x', appSecret: 's' }, { cfg }), { ok: true });
+    assert.equal(cfg.me, '');
+    const r: any = await routes['POST /api/setup/lark/login']({}, { cfg });
+    assert.equal(r.url, 'https://example.com/v');
+    for (let i = 0; i < 100 && cfg.me !== 'ou_new'; i++) await new Promise((res) => setTimeout(res, 20));
+    assert.equal(cfg.me, 'ou_new');
+  } finally {
+    if (prev === undefined) delete process.env.LCR_LARK_CLI; else process.env.LCR_LARK_CLI = prev;
+  }
+});

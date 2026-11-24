@@ -41,9 +41,9 @@
 
 ## 打到哪
 
-- 模型是服务级的 `judgeModel`（默认 `claude-haiku-4-5`，实测 p50 1.8 秒）。走网关时会先思考一轮的模型（自动路由那类）慢一倍。`max_tokens` 留到 1024，就是给先吐 thinking 的网关模型留余量。
-- 地址和凭证跟着**模板的网关**走；模板没配就用顶层 `gateway`；再没有就跟 claude 用同一套：环境变量优先，其次 `~/.claude/settings.json` 的 `env`（`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`）。
-- web UI 模板设置里的「测一下」就是拿 `judgeModel` 往网关发一个最小请求。
+- 打 API 来源里的**网关**（订阅的令牌只认 Claude Code，不能直接调 API，跳过），按顺序，一个失败换下一个，出过事歇着的排后面。模板固定了某个来源就只用它。一个网关都没有就跟 claude 用同一套：环境变量优先，其次 `~/.claude/settings.json` 的 `env`（`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`）。见 `judgeTargets()`。
+- 模型是这个网关 **haiku 那档**的名字（来源的 `models.haiku`；跟 claude 自己配置走时看 `ANTHROPIC_DEFAULT_HAIKU_MODEL`），都没有就是 `claude-haiku-4-5`（实测 p50 1.8 秒）。走网关时会先思考一轮的模型（自动路由那类）慢一倍。`max_tokens` 留到 1024，就是给先吐 thinking 的网关模型留余量。
+- **一个都打不了**（只有订阅，claude 自己也没配令牌）：不白打一次 401，直接按要回，理由写「没有能判定的网关」。这种配置在模板的「先判定」开关底下、「实际会怎么跑」和向导里都标红。
 
 ## 不开判定
 

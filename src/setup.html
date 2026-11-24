@@ -75,9 +75,15 @@ a:hover{text-decoration:underline}
 
 /* ---------- 正文 ---------- */
 .wz-main{max-width:820px;margin:0 auto;padding:48px 24px 90px}
-.embed .topbar,.embed .wz-intro{display:none}
+.embed .topbar,.embed .wz-intro{display:none!important}   /* is-ready 那块自己带 display:flex */
 .embed body{background:var(--surface)}
 .embed .wz-main{margin:0;padding:8px 40px 40px}
+.only #secs{margin-top:0}
+.only .sx{border:none;background:none;box-shadow:none}
+.only .sx>summary{display:none}
+.only .sx-body{padding:0}
+/* 配好了的飞书应用 / 登录：收成一个按钮，不要灰底面板 */
+.wz-form.is-min{background:none;border:none;padding:0;margin-top:8px}
 .wz-intro h1{margin:0;font:400 32px/1.25 var(--serif);letter-spacing:-.01em}
 .wz-intro p{margin:12px 0 0;color:var(--ink-2);font-size:14.5px;line-height:1.7;max-width:40rem}
 .wz-intro.is-ready{background:var(--ok-w);border:1px solid transparent;border-radius:var(--r);padding:22px 24px;
@@ -136,12 +142,22 @@ a:hover{text-decoration:underline}
 .wz-fi{display:flex;flex-direction:column;gap:5px;min-width:0}
 .wz-lb{font-size:12.5px;font-weight:600;color:var(--ink-2)}
 .wz-g2{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.wz-g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px 14px}
 .wz-acts{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .wz-hint{margin:0;color:var(--ink-3);font-size:12.5px;line-height:1.55}
 .wz-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
 .wz-inline input{flex:1 1 13rem;width:auto}
 .wz-inline input.is-short{flex:0 1 10rem}
 .wz-link{font-size:12.5px;white-space:nowrap}
+.api-list{display:grid;gap:10px}
+.api-list:empty{display:none}
+.api{display:grid;gap:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--rs)}
+.api-h{display:flex;align-items:center;gap:6px}
+.api-h input{flex:1 1 auto;min-width:0;font-weight:600}
+.api-no{font-size:12px;font-weight:700;color:var(--ink-3);width:1.2em;text-align:center}
+.api-kind{font-size:11.5px;padding:1px 8px;border-radius:6px;background:var(--sunk);color:var(--ink-2);white-space:nowrap}
+.api-tok{display:flex;gap:6px}
+.api-tok input{flex:1;min-width:0}
 
 /* 扫码 */
 .qr-box{display:flex;gap:18px;align-items:center}
@@ -195,7 +211,7 @@ a:hover{text-decoration:underline}
 
 @media(max-width:760px){
   .sx-body{padding-left:20px}
-  .wz-g2{grid-template-columns:1fr}
+  .wz-g2,.wz-g3{grid-template-columns:1fr}
   .ws-repo{grid-template-columns:minmax(0,1fr) auto auto}
   .ws-date{display:none}
 }
@@ -231,17 +247,20 @@ a:hover{text-decoration:underline}
 
 <script>
 'use strict';
-// 嵌在设置「环境」页里：不要顶栏和开场白，左边距对齐设置页
-if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+// 嵌在设置页里：不要顶栏和开场白，左边距对齐设置页。only=段 id：设置里单独的「API」「飞书」页，只要那一段、一直展开
+const Q = new URLSearchParams(location.search);
+const ONLY = Q.get('only');
+if (Q.has('embed')) document.documentElement.classList.add('embed');
+if (ONLY) document.documentElement.classList.add('only');
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 
 /** 后端只给段标题；这一步是干嘛的、点哪里，得跟产品同学说清楚 */
 const DESC = {
-  tools: '这台电脑要有三个小程序：飞书命令行、Claude Code、git。缺哪个点「安装」，会自动下载装好，不用开终端。',
-  model: 'Claude 通过模型网关来用：填网关地址、令牌（token）和模型，然后点「测试并保存」。',
+  tools: '检查飞书命令行、git 和当前模板使用的执行器。',
+  model: 'Codex 连接已有的 App Server。模型和推理强度在「设置 → Codex」中选择。',
   lark: '让它能用你的飞书身份看群消息、回消息。先确定用哪个飞书应用，再用飞书 App 扫码登录。',
-  workspace: 'Claude 排查问题时要看代码。拉一个仓库下来，或者直接用电脑上已有的目录。',
+  workspace: '选择执行器排查问题时使用的项目目录。',
   plugin: '查日志、查数据库这类「现场取证」工具。先安装，再给需要登录的工具授权一次。',
 };
 const ICON = { ok: '✓', missing: '', error: '!', running: '' };
@@ -342,7 +361,7 @@ async function refresh() {
 const left = (s) => s.checks.filter((c) => !c.optional && c.state !== 'ok');
 
 function render() {
-  const secs = st.sections;
+  const secs = ONLY ? st.sections.filter((s) => s.id === ONLY) : st.sections;
   const cur = secs.find((s) => left(s).length);
   const done = secs.filter((s) => !left(s).length).length;
   $('wz-stat').textContent = st.ready ? '' : `已完成 ${done} / ${secs.length} 步`;
@@ -385,7 +404,7 @@ function paintCard(d, s, i, isCur) {
   const sum = d.querySelector('.sx-sum');
   sum.textContent = ok ? '已就绪' : need.some((c) => c.state === 'running') ? '检测中…' : `还差 ${need.length} 项`;
   sum.classList.toggle('is-bad', need.some((c) => c.state === 'error'));
-  d.open = userOpen.get(s.id) ?? isCur;
+  d.open = ONLY ? true : userOpen.get(s.id) ?? isCur;
   // 段没变就不重画：轮询时别的段在填的输入框不该丢焦点
   const json = JSON.stringify(s);
   if (d._json === json) return;
@@ -428,51 +447,110 @@ function extraFor(sid, c) {
   return extras.get(k);
 }
 
+/**
+ * API 来源表：按顺序用，第一个出问题（额度用完、限流、令牌失效）自动换下一个接着跑。
+ * 令牌页面上拿不到原值：留空 = 不改，「清掉」才清。改了名的靠 from 认回原来那条（令牌、模板的固定都跟着走）
+ */
 function modelForm() {
   const f = el('div', 'ck-more wz-form');
-  const url = inp('http://…'), tok = inp('', 'password'), mod = inp('网关上可用的模型名');
-  const b = btn('测试并保存', 'primary', 'model');
-  f.append(field('网关地址', url), row('wz-g2', field('令牌（token）', tok), field('模型', mod)),
-    row('wz-acts', b, link(preset.gateway.consoleUrl, '去控制台查可用模型、申请令牌 ↗')), msgBox('model'));
-  let hasToken = false;
-  const load = async () => {
-    const d = await get('/api/setup/model').catch(() => ({}));   // 后端没好就全用预置
-    url.value = d.baseUrl || url.value || preset.gateway.baseUrl || '';
-    mod.value = d.model || mod.value || preset.gateway.model || '';
-    hasToken = !!d.hasToken;
-    tok.placeholder = hasToken ? '已保存，留空不改' : '网关给你的令牌';
-  };
-  load();
-  b.onclick = () => {
-    if (!url.value.trim()) return setMsg('model', '先填网关地址', 'bad');
-    if (!tok.value.trim() && !hasToken) return setMsg('model', '先填令牌（token）', 'bad');
-    act(b, 'model', '/api/setup/model', { baseUrl: url.value.trim(), model: mod.value.trim(), token: tok.value.trim() || undefined }, async (d) => {
-      setMsg('model', '✓ 网关通了，已保存' + (d.detail ? '。' + d.detail : ''), 'ok');
-      tok.value = '';
-      await Promise.all([load(), refresh()]);
+  const list = el('div', 'api-list');
+  const addGw = btn('+ 网关', 'ghost'), addSub = btn('+ Claude 订阅', 'ghost');
+  const save = btn('保存', 'primary', 'apis');
+  let rows = [];
+  const draw = () => list.replaceChildren(...rows.map(apiRow));
+  const move = (i, d) => { [rows[i], rows[i + d]] = [rows[i + d], rows[i]]; draw(); };
+
+  function apiRow(a, i) {
+    const box = el('div', 'api');
+    const name = inp('名字'); name.value = a.name; name.oninput = () => { a.name = name.value; };
+    const up = btn('↑', 'ghost'), down = btn('↓', 'ghost'), del = btn('删掉', 'ghost danger');
+    up.disabled = i === 0; down.disabled = i === rows.length - 1;
+    up.onclick = () => move(i, -1); down.onclick = () => move(i, 1);
+    del.onclick = () => { rows.splice(i, 1); draw(); };
+    box.append(row('api-h', el('span', 'api-no', String(i + 1)), name,
+      el('span', 'api-kind', a.kind === 'subscription' ? 'Claude 订阅' : '网关'), up, down, del));
+
+    const sub = a.kind === 'subscription';
+    if (!sub) { const url = inp('http://…'); url.value = a.baseUrl || ''; url.oninput = () => { a.baseUrl = url.value; }; box.append(field('地址', url)); }
+    const tok = inp('', 'password'), clr = btn('清掉', 'ghost');
+    const ph = () => {
+      tok.placeholder = a.token === '' ? '保存后清掉' : a.hasToken ? '已保存，留空不改'
+        : sub ? '不填 = 用 claude 自己登录的账号' : '网关给你的令牌';
+      clr.hidden = !a.hasToken || a.token === '';
+    };
+    tok.oninput = () => { if (tok.value) a.token = tok.value; else delete a.token; ph(); };
+    clr.onclick = () => { a.token = ''; tok.value = ''; ph(); };
+    ph();
+    box.append(field('令牌', row('api-tok', tok, clr)));
+    // 模板只选档位，这里说每一档在这个来源上叫什么（交给 claude 的 ANTHROPIC_DEFAULT_*_MODEL）
+    const models = a.models || (a.models = {});
+    box.append(row('wz-g3', ...[['opus', '强'], ['sonnet', '中'], ['haiku', '快 · 判定也用']].map(([k, cn]) => {
+      const m = inp('不填 = 原名'); m.value = models[k] || ''; m.setAttribute('aria-label', a.name + ' 的 ' + k + ' 档模型名');
+      m.oninput = () => { models[k] = m.value.trim(); };
+      return field(k + ' · ' + cn, m);
+    })));
+    box.append(el('p', 'wz-hint', sub ? '订阅直接认 opus / sonnet / haiku，一般不用填。'
+      : '每一档在这个网关上叫什么。只认一个名字的网关（比如 claude-auto）三格都填它；官方 API 不用填。'));
+    if (sub) box.append(el('p', 'wz-hint', '桌面版要填令牌（它的 claude 配置是单独的）：终端里跑 claude setup-token，用订阅账号登录，把给出的令牌贴进来。命令行版不填就用本机 Claude Code 登录的账号。'));
+
+    const test = btn('测一下', null, 'api-test-' + i);
+    test.onclick = () => act(test, 'model', '/api/setup/apis/test', a, (d) => {
+      const r = d.result;
+      setMsg(test.dataset.key, (r.ok ? '✓ ' : '✗ ') + r.detail + (r.ms ? '（' + r.ms + 'ms）' : ''), r.ok ? 'ok' : 'bad');
     });
+    box.append(row('wz-acts', test), msgBox(test.dataset.key));
+    return box;
+  }
+
+  const load = async () => {
+    const d = await get('/api/setup/model').catch(() => ({ apis: [] }));
+    rows = (d.apis || []).map((a) => ({ ...a, models: { ...a.models }, from: a.name }));
+    // 一个都没有：团队预置了网关就先摆一条出来，填个令牌就能用。预置的是一个模型名：三档都叫它
+    const pm = preset.gateway.model;
+    if (!rows.length && preset.gateway.baseUrl) rows.push({ name: '网关', kind: 'gateway', baseUrl: preset.gateway.baseUrl, models: pm ? { opus: pm, sonnet: pm, haiku: pm } : {} });
+    draw();
   };
+  addGw.onclick = () => { rows.push({ name: '网关 ' + (rows.length + 1), kind: 'gateway', baseUrl: '', models: {} }); draw(); };
+  addSub.onclick = () => { rows.push({ name: 'Claude 订阅', kind: 'subscription', models: {} }); draw(); };
+  save.onclick = () => act(save, 'model', '/api/setup/apis', { apis: rows.map(({ hasToken, ...r }) => r) }, async () => {
+    setMsg('apis', '✓ 已保存', 'ok');
+    await Promise.all([load(), refresh()]);
+  });
+
+  f.append(el('p', 'wz-hint', '按顺序用：第一个出问题（额度用完、限流、令牌失效）自动换下一个接着跑。某个模板要固定用其中一个，到 设置 → 模板 里选。'),
+    list, row('wz-acts', addGw, addSub), row('wz-acts', save, link(preset.gateway.consoleUrl, '去控制台查可用模型、申请令牌 ↗')), msgBox('apis'));
+  load();
   return f;
 }
 
+/** 飞书应用：没配就是表单；配好了收成一个「换一个飞书应用」，点开同一张表单。换完要重新扫码（lark-cli 换应用会清掉登录） */
 function larkAppForm() {
   const f = el('div', 'ck-more wz-form');
-  const b = btn('使用团队应用', 'primary', 'lark-app');
-  if (preset.larkApp.appId && preset.larkApp.hasSecret) {
-    b.onclick = () => act(b, 'lark', '/api/setup/lark/app', {});
-    f.append(el('p', 'wz-hint', `团队已经准备好了飞书应用（${preset.larkApp.appId}），直接用它就行。`), row('wz-acts', b));
-  } else {
-    const id = inp('cli_ 开头的一串'), sec = inp('', 'password');
-    b.textContent = '保存';
-    b.onclick = () => {
-      if (!id.value.trim() || !sec.value.trim()) return setMsg('lark-app', '两个都要填', 'bad');
-      act(b, 'lark', '/api/setup/lark/app', { appId: id.value.trim(), appSecret: sec.value.trim() });
-    };
-    f.append(el('p', 'wz-hint', '找管理员要飞书应用的 App ID 和 App Secret，填在这里。'),
-      row('wz-g2', field('App ID', id), field('App Secret', sec)), row('wz-acts', b));
+  const form = el('div');
+  const tog = btn('换一个飞书应用');
+  let ok = false, open = false;
+  const togRow = row('wz-acts', tog);
+  const cancel = btn('算了', 'ghost');
+  const sync = () => { togRow.hidden = !ok || open; cancel.hidden = !ok; form.hidden = ok && !open; f.classList.toggle('is-min', ok && !open); };
+  tog.onclick = () => { open = true; sync(); };
+  cancel.onclick = () => { open = false; sync(); };
+  const done = async () => { open = false; await reload('lark'); };
+  const team = preset.larkApp.appId && preset.larkApp.hasSecret;
+  if (team) {
+    const b = btn('使用团队应用', 'primary', 'lark-app');
+    b.onclick = () => act(b, 'lark', '/api/setup/lark/app', {}, done);
+    form.append(el('p', 'wz-hint', `团队已经准备好了飞书应用（${preset.larkApp.appId}），直接用它就行。`), row('wz-acts', b));
   }
-  f.append(msgBox('lark-app'));
-  f.upd = (c) => { f.hidden = c.state === 'ok'; };
+  const id = inp('cli_ 开头的一串'), sec = inp('', 'password');
+  const save = btn('保存', team ? '' : 'primary', 'lark-app');
+  save.onclick = () => {
+    if (!id.value.trim() || !sec.value.trim()) return setMsg('lark-app', '两个都要填', 'bad');
+    act(save, 'lark', '/api/setup/lark/app', { appId: id.value.trim(), appSecret: sec.value.trim() }, async () => { sec.value = ''; await done(); });
+  };
+  form.append(el('p', 'wz-hint', (team ? '或者用别的应用：' : '') + '找管理员要飞书应用的 App ID 和 App Secret，填在这里。换了应用要重新扫码登录。'),
+    row('wz-g2', field('App ID', id), field('App Secret', sec)), row('wz-acts', save, cancel));
+  f.append(togRow, form, msgBox('lark-app'));
+  f.upd = (c) => { ok = c.state === 'ok'; sync(); };
   return f;
 }
 
@@ -483,7 +561,8 @@ function larkLoginForm() {
   const qr = el('div', 'qr-box'); qr.hidden = true;
   f.append(row('wz-acts', b, hint), msgBox('lark-login'), qr);
   let timer = 0;
-  b.onclick = () => act(b, 'lark', '/api/setup/lark/login', {}, (d) => {
+  // 二维码要在面板里展开：登好了收成按钮的那个状态先撤掉
+  b.onclick = () => (f.classList.remove('is-min'), act(b, 'lark', '/api/setup/lark/login', {}, (d) => {
     clearInterval(timer);
     const img = el('img'); img.src = d.qr; img.alt = '飞书登录二维码'; img.hidden = !d.qr;   // 后端生成二维码失败时只给链接
     const remain = el('div', 'qr-left');
@@ -500,11 +579,14 @@ function larkLoginForm() {
       if (!sec) clearInterval(timer);
     };
     tick(); timer = setInterval(tick, 1000);
-  });
-  f.done = () => { clearInterval(timer); qr.hidden = true; b.textContent = '扫码登录'; };
+  }));
+  // 登好了按钮还在：重新扫一次 = 换账号（lark-cli 登录是替换，不是再加一个）
+  let ok = false;
+  const idle = () => { b.textContent = ok ? '重新扫码 · 换账号' : '扫码登录'; b.classList.toggle('primary', !ok); f.classList.toggle('is-min', ok); };
+  f.done = () => { clearInterval(timer); qr.hidden = true; idle(); };
   f.upd = (c, s) => {
-    f.hidden = c.state === 'ok';
-    if (f.hidden) f.done();
+    ok = c.state === 'ok';
+    if (qr.hidden) idle();
     // lark-cli 登录前得先配好应用
     const app = s.checks.find((x) => x.id === 'app');
     const appOk = !app || app.state === 'ok';

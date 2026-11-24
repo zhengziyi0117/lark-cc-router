@@ -29,4 +29,6 @@ test('选了网关：打它的地址、带它的 token', () => {
   assert.equal(c.base, 'http://gw.local');
   assert.equal(c.headers.authorization, 'Bearer tk');
   assert.equal(credentials({ baseUrl: 'http://open' }).headers.authorization, undefined, '没 token 就不带');
+  const k = credentials({ baseUrl: 'https://api.anthropic.com', token: 'sk-ant-api03-x' }).headers;
+  assert.deepEqual([k['x-api-key'], k.authorization], ['sk-ant-api03-x', undefined], '官方 key 走 x-api-key');
 });

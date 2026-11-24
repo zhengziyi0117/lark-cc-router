@@ -75,7 +75,9 @@ export function pushEvent(id: string, ev: AgentEvent): void {
   const job = jobs.get(id);
   if (!job) return;
   const stamped: StampedEvent = { ...ev, t: Date.now() };
-  job.events.push(stamped);
+  const previous = ev.kind === 'text' && ev.itemId ? job.events.findIndex((e) => e.kind === 'text' && e.itemId === ev.itemId) : -1;
+  if (previous < 0) job.events.push(stamped);
+  else job.events[previous] = stamped;
   if (job.events.length > MAX_EVENTS) job.events.shift();
   emitter.emit('m', { type: 'ev', id, ev: stamped } satisfies Msg);
 }

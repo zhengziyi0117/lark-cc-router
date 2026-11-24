@@ -24,6 +24,9 @@ export const DEFAULT_SYSTEM_PROMPT = `你在飞书里代我回答问题：群里
 /** `claude --permission-mode` 的取值。plan = 只读（只看不改） */
 export const PERMISSION_MODES = ['auto', 'acceptEdits', 'plan', 'manual', 'dontAsk', 'bypassPermissions'] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
+export type Agent = 'claude' | 'codex';
+export const CODEX_SANDBOXES = ['read-only', 'workspace-write', 'danger-full-access'] as const;
+export type CodexSandbox = (typeof CODEX_SANDBOXES)[number];
 
 /* ------------------------------------------------------------------ *
  * 两级配置，各司其职：
@@ -38,18 +41,52 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
  * 实际一个判定、零个网关、零个会话覆盖，只换来一堆页签和下拉。现在都收进模板（见 migrate）。
  * ------------------------------------------------------------------ */
 
-/** 一个模型网关（Anthropic Messages API 兼容）。CC 和这个模板的判定都打它 */
+/** 一个模型网关（Anthropic Messages API 兼容）的地址和凭证。判定直接打它 */
 export interface Gateway {
   baseUrl: string;
-  /** 走 `Authorization: Bearer`（ANTHROPIC_AUTH_TOKEN）。不下发到 web 页面 */
+  /** 走 `Authorization: Bearer`（ANTHROPIC_AUTH_TOKEN）；`sk-ant-api` 开头的是 Anthropic 官方 key，走 x-api-key。不下发到 web 页面 */
   token?: string;
+}
+
+/**
+ * Claude Code 认的三个档位。模板选档位，每个来源说「这一档在我这儿叫什么」——
+ * 经 `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` 交给 claude（它自己就认这套映射）。
+ * 换来源不用改模板；haiku 那档还管 claude 的后台小任务和我们的判定。
+ */
+export const TIERS = ['opus', 'sonnet', 'haiku'] as const;
+export type Tier = (typeof TIERS)[number];
+export const isTier = (v: unknown): v is Tier => TIERS.includes(v as Tier);
+/** 判定直接调 API，不认别名：来源没给 haiku 那档起名就用这个 */
+export const JUDGE_MODEL = 'claude-haiku-4-5';
+/** 一档对应的环境变量 */
+export const tierEnv = (t: Tier) => `ANTHROPIC_DEFAULT_${t.toUpperCase()}_MODEL`;
+
+/**
+ * 一个 API 来源。按 Config.apis 的顺序用：这个额度用完 / 限流 / 鉴权失败，自动换下一个接着跑（见 pipeline 的 runOnApis）。
+ *   - gateway：Anthropic 兼容的网关或官方 API，填地址 + 令牌
+ *   - subscription：Claude 订阅。令牌是 `claude setup-token` 出来的长效令牌；不填 = 用 claude 自己登录的那个
+ *     （命令行版就是本机 Claude Code 的登录；桌面版的 claude 配置是隔离的，得填）
+ */
+export interface Api {
+  name: string;
+  kind: 'gateway' | 'subscription';
+  baseUrl?: string;
+  token?: string;
+  /** 各档位在这个来源上叫什么（公司网关可能三档都叫 claude-auto）。没填的档位用 Claude Code 自己的名字 */
+  models?: Partial<Record<Tier, string>>;
 }
 
 /** 场景级：一个模板 = 一套"该怎么回" */
 export interface Template {
+  agent?: Agent;
+  codexSandbox?: CodexSandbox;
+  codexEffort?: string;
   /** 查哪个项目 */
   project?: string;
-  /** `claude --model`：别名（opus / sonnet / haiku）或完整模型名。不填 = claude 自己的默认 */
+  /**
+   * Claude：档位（opus / sonnet / haiku，按来源的映射换成各家的名字）或完整模型名（原样传给每个来源）。不填 = claude 自己的默认。
+   * Codex：App Server 的模型名
+   */
   model?: string;
   /** CC 的权限模式。`plan` = 只读（只查不改）—— 安全边界，不是建议 */
   permissionMode?: PermissionMode;
@@ -60,12 +97,9 @@ export interface Template {
    * **不填 = 不判定 · 直接回**：每条 @ 都交给 CC。自己用的场景就是这样。
    */
   judge?: string;
-  /** 网关。不填 = 用服务级的 Config.gateway，那个也没有才跟 ~/.claude/settings.json 走。判定也走它 */
-  gateway?: Gateway;
-  /**
-   * 额外的 Claude Code settings（跟 settings.json 一个格式），经 `claude --settings` 叠在用户设置上面。
-   * 换网关时最常用：网关上的模型名不一样，在这儿的 env 里把 ANTHROPIC_MODEL 之类改掉。
-   */
+  /** 固定用哪个 API 来源（Config.apis 里的名字）。不填 = 按列表顺序用，出问题自动换下一个 */
+  api?: string;
+  /** 额外的 Claude Code settings（跟 settings.json 一个格式），经 `claude --settings` 叠在用户设置上面 */
   claudeSettings?: Record<string, unknown>;
   /** 额外透传给 claude 的参数 */
   claudeArgs?: string[];
@@ -76,12 +110,16 @@ export interface Template {
 /** 会话 + 模板，叠完之后的实际生效值 */
 export interface Resolved {
   template: string;
+  agent: Agent;
+  codexSandbox: CodexSandbox;
+  codexEffort?: string;
   project: string;
   model: string;
   permissionMode: PermissionMode;
   prompt: string;
   judge: string;
-  gateway?: Gateway;
+  /** 这个会话能用的 API 来源，按顺序。模板固定了某一个就只有它；空 = 跟 claude 自己的配置走 */
+  apis: Api[];
   claudeSettings: Record<string, unknown>;
   claudeArgs: string[];
   self: boolean;
@@ -117,18 +155,13 @@ export interface Config {
   pollMs: number;
   maxJobs: number;
   stateDir: string;
-  /** 判定用的模型（直接调 API，不走 claude）。要快、要便宜：只做一次分类。打哪个网关跟着模板 */
-  judgeModel: string;
   templates: Record<string, Template>;
   /** @我：搜索"@我"的消息，以我本人身份回 */
   user: Mode;
   /** @机器人：长连接收机器人的消息（群里 @它 / 私聊它），以机器人身份回，卡片流式打字 */
   bot: Mode;
-  /**
-   * 默认网关：模板没单独配网关的都走它。不配就跟 ~/.claude/settings.json 走 ——
-   * 那边清空了（换成订阅登录）的话就是订阅，所以要固定打某个网关就填这里。
-   */
-  gateway?: Gateway;
+  /** API 来源，按顺序用、出问题自动换下一个。空 = 跟 claude 自己的配置走（~/.claude/settings.json，没配就是订阅登录） */
+  apis: Api[];
 }
 
 /**
@@ -139,7 +172,7 @@ export type Scope = Config & Mode;
 export const scopeOf = (cfg: Config, mode: ModeName): Scope => ({ ...cfg, ...cfg[mode] });
 
 /** web UI 能改的那部分 —— 服务端校验和前端表单共用这一个形状 */
-export type EditableConfig = Pick<Config, 'templates' | 'user' | 'bot' | 'pollMs' | 'maxJobs' | 'judgeModel'>;
+export type EditableConfig = Pick<Config, 'templates' | 'user' | 'bot' | 'pollMs' | 'maxJobs'>;
 
 /** 老格式留在顶层的场景字段，migrate 会把它们提到模板上 */
 const LEGACY_SCENARIO_KEYS = ['project', 'permissionMode', 'self', 'claudeArgs', 'systemPrompt'] as const;
@@ -150,8 +183,8 @@ const DEFAULTS: Config = {
   pollMs: 60_000,
   maxJobs: 3,
   stateDir: 'state',
-  judgeModel: 'claude-haiku-4-5',
   templates: { 通用: {} },
+  apis: [],
   user: { on: true, defaultTemplate: '通用', chats: {}, allP2p: false, allGroups: false },
   // 机器人默认关：它背后是能跑命令的 CC，谁都能私聊它，得自己确认过模板再开。
   // 开了之后默认谁找都回 —— 群里得有人把它拉进去，本身就是一道闸
@@ -164,22 +197,36 @@ export function expandProject(p: string): string {
 }
 
 /** 会话实际生效的配置：就是它选的那个模板（选的模板没了就用默认的） */
-export function resolveChat(cfg: Pick<Scope, 'chats' | 'templates' | 'defaultTemplate' | 'gateway'>, chatId: string): Resolved {
+export function resolveChat(cfg: Pick<Scope, 'chats' | 'templates' | 'defaultTemplate' | 'apis'>, chatId: string): Resolved {
   const pick = cfg.chats[chatId];
   const name = pick && cfg.templates[pick] ? pick : cfg.defaultTemplate;
   const t = cfg.templates[name] ?? {};
   return {
     template: name,
+    agent: t.agent === 'codex' ? 'codex' : 'claude',
+    codexSandbox: CODEX_SANDBOXES.includes(t.codexSandbox!) ? t.codexSandbox! : 'read-only',
+    ...(t.agent === 'codex' && t.codexEffort && { codexEffort: t.codexEffort }),
     project: t.project ?? '',
     model: t.model ?? '',
     permissionMode: t.permissionMode ?? 'auto',
     prompt: t.prompt ?? '',
     judge: t.judge ?? '',
-    gateway: t.gateway ?? cfg.gateway,
+    apis: (cfg.apis ?? []).some((a) => a.name === t.api) ? cfg.apis.filter((a) => a.name === t.api) : cfg.apis ?? [],
     claudeSettings: t.claudeSettings ?? {},
     claudeArgs: t.claudeArgs ?? [],
     self: t.self ?? false,
   };
+}
+
+/** 向导只检查会实际接到消息的模板。还没开启任何会话时用默认模板做首次配置。 */
+export function routingTemplates(cfg: Config): Template[] {
+  const modes = [cfg.user, cfg.bot].filter((m) => m.on);
+  const templates = modes.flatMap((m) => {
+    const names = Object.values(m.chats);
+    if (m.allGroups || m.allP2p) names.push(m.defaultTemplate);
+    return names.map((n) => cfg.templates[n] ?? cfg.templates[m.defaultTemplate] ?? {});
+  });
+  return templates.length ? templates : [cfg.templates[(modes[0] ?? cfg.user).defaultTemplate] ?? {}];
 }
 
 /** 这个会话启没启用。值可能是空串（= 默认模板），所以别拿真假判 */
@@ -203,7 +250,7 @@ export function promptFor(cfg: Parameters<typeof resolveChat>[0], chatId: string
  */
 export function argsFor(cfg: Parameters<typeof resolveChat>[0], chatId: string, settingsPath?: string): string[] {
   const r = resolveChat(cfg, chatId);
-  // 模型放在额外参数后面：两边都写了 --model 时，以专门的字段为准
+  // 模型放在额外参数后面：两边都写了 --model 时，以专门的字段为准。档位在各来源上叫什么走 --settings 里的映射（apiEnv）
   return [
     ...r.claudeArgs,
     ...(settingsPath ? ['--settings', settingsPath] : []),
@@ -212,20 +259,33 @@ export function argsFor(cfg: Parameters<typeof resolveChat>[0], chatId: string, 
   ];
 }
 
+/** 下发到页面的样子：令牌只说有没有 */
+export const publicApi = (a: Api) => ({ name: a.name, kind: a.kind, baseUrl: a.baseUrl ?? '', models: a.models ?? {}, hasToken: !!a.token });
+
+/** 一个 API 来源要给 claude 的环境变量：地址 / 令牌 + 档位映射 */
+export function apiEnv(api: Api): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (api.kind === 'subscription') { if (api.token) env.CLAUDE_CODE_OAUTH_TOKEN = api.token; }
+  else {
+    env.ANTHROPIC_BASE_URL = api.baseUrl ?? '';
+    if (api.token) env[/^sk-ant-api/.test(api.token) ? 'ANTHROPIC_API_KEY' : 'ANTHROPIC_AUTH_TOKEN'] = api.token;
+  }
+  for (const t of TIERS) if (api.models?.[t]) env[tierEnv(t)] = api.models[t]!;
+  return env;
+}
+
 /**
- * 叠给 claude 的那份 settings：模板的 claudeSettings，再把网关的地址 / token 盖在 env 上
- * （填了网关就以它为准）。都没有返回 undefined —— 不传 --settings，完全跟 ~/.claude/settings.json 走。
+ * 叠给 claude 的那份 settings：模板的 claudeSettings，再把这次用的 API 来源的地址 / 令牌盖在 env 上
+ * （以来源为准）。都没有返回 undefined —— 不传 --settings，完全跟 ~/.claude/settings.json 走。
  *
  * 为什么不直接设环境变量：实测 ~/.claude/settings.json 的 env 会**盖过**进程环境变量，
  * 只有 `--settings` 盖得过它。
  */
-export function claudeSettingsFor(cfg: Parameters<typeof resolveChat>[0], chatId: string): Record<string, unknown> | undefined {
-  const { gateway: gw, claudeSettings: base } = resolveChat(cfg, chatId);
-  if (!gw && !Object.keys(base).length) return undefined;
-  if (!gw) return base;
-  const env = { ...(base.env as Record<string, string> | undefined), ANTHROPIC_BASE_URL: gw.baseUrl };
-  if (gw.token) env.ANTHROPIC_AUTH_TOKEN = gw.token;
-  return { ...base, env };
+export function claudeSettingsFor(cfg: Parameters<typeof resolveChat>[0], chatId: string, api?: Api): Record<string, unknown> | undefined {
+  const { claudeSettings: base } = resolveChat(cfg, chatId);
+  const over = api ? apiEnv(api) : {};
+  if (!Object.keys(over).length) return Object.keys(base).length ? base : undefined;
+  return { ...base, env: { ...(base.env as Record<string, string> | undefined), ...over } };
 }
 
 /** config.json 原文 */
@@ -267,6 +327,8 @@ export function migrateLegacy(raw: Record<string, any>): Record<string, any> {
  *
  *   - 顶层场景字段 → 模板（migrateLegacy）
  *   - `judges` + 模板 `judge: "名字"` → 模板 `judge: "提示词"`；`gateways` 同理内联成对象
+ *   - 顶层 `gateway` + 模板各自的 `gateway` → `apis`（按顺序用的 API 来源表）；配了自己网关的模板固定用它（`api`）
+ *   - 来源的 `model` + 顶层 `judgeModel` → 来源的 `models`（档位 → 名字）
  *   - 模板 `readonly: true` → `permissionMode: "plan"`
  *   - `chats`：数组 / `{ template, p2p, project… }` → `id → 模板名`。会话级覆盖不要了，丢了的打一行日志
  */
@@ -291,6 +353,40 @@ export function migrate(raw: Record<string, any>): Record<string, any> {
     }
   }
   delete raw.judges; delete raw.gateways; delete raw.judgeGateway;
+
+  // 一个默认网关 + 模板各自的网关 → 一张按顺序用的 API 来源表；配了自己网关的模板固定用它
+  const apis: Api[] = Array.isArray(raw.apis) ? raw.apis : [];
+  const add = (gw: Gateway, name: string): string => {
+    const same = apis.find((a) => a.kind === 'gateway' && a.baseUrl === gw.baseUrl && a.token === gw.token);
+    if (same) return same.name;
+    let n = name;
+    for (let i = 2; apis.some((a) => a.name === n); i++) n = `${name} ${i}`;
+    apis.push({ name: n, kind: 'gateway', baseUrl: gw.baseUrl, ...(gw.token ? { token: gw.token } : {}) });
+    return n;
+  };
+  if (raw.gateway?.baseUrl) add(raw.gateway, '默认网关');
+  for (const [k, t] of Object.entries<any>(raw.templates ?? {})) {
+    if (t?.gateway?.baseUrl) t.api = add(t.gateway, k);
+    if (t && 'gateway' in t) delete t.gateway;
+  }
+  // 来源上的一个「模型」（以前盖过模板）→ 按档位的映射：opus / sonnet 都叫它。haiku 那档接过以前全局的判定模型：
+  // saveApis 以前在网关不认 claude-haiku-4-5 时会把它改成网关的模型，所以它就是网关上真能用的快模型。
+  // 填的是档位别名的（订阅上写 opus 那种）不是名字映射，丢掉 —— 档位现在在模板里选
+  const fast = typeof raw.judgeModel === 'string' && raw.judgeModel.trim() !== JUDGE_MODEL ? raw.judgeModel.trim() : '';
+  for (const a of apis as any[]) {
+    if (!a) continue;
+    // 判定以前对每个网关都用 judgeModel，没配 model 的网关也一样
+    if (a.kind === 'gateway' && fast && !a.models?.haiku) a.models = { ...a.models, haiku: fast };
+    if (!('model' in a)) continue;
+    const m = typeof a.model === 'string' ? a.model.trim() : '';
+    delete a.model;
+    if (!m) continue;
+    if (isTier(m)) { console.warn(`[config] API 来源「${a.name}」的模型 ${m} 是档位，不再按来源固定，改在模板里选`); continue; }
+    a.models = { opus: m, sonnet: m, ...a.models };
+  }
+  delete raw.judgeModel;
+  if (apis.length) raw.apis = apis;
+  delete raw.gateway;
   // me 以前手填，现在跟 lark-cli 登录的用户走。留在文件里只会让人以为改它有用
   delete raw.me;
 
@@ -331,8 +427,8 @@ export function loadConfig(path = CONFIG_PATH): Config {
   return c;
 }
 
-/** web UI 保存用：只改传进来的键，其它键原样留在文件里（老键顺手迁掉）。默认网关只有上手向导改（setup/auth.ts） */
-export function saveConfig(patch: Partial<EditableConfig & Pick<Config, 'gateway'>>, path = CONFIG_PATH): void {
+/** web UI 保存用：只改传进来的键，其它键原样留在文件里（老键顺手迁掉）。API 来源只在设置的「API」页改（setup/auth.ts） */
+export function saveConfig(patch: Partial<EditableConfig & Pick<Config, 'apis'>>, path = CONFIG_PATH): void {
   const raw = migrate(rawConfig(path) as Record<string, any>);
   writeFileSync(path, JSON.stringify({ ...raw, ...patch }, null, 2) + '\n');
   chmodSync(path, 0o600); // 里面可能有网关 token
@@ -345,9 +441,6 @@ const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 /**
  * 把前端传来的东西夹成合法配置 —— 一律不信：坏值落回当前值，数字夹进范围。
  * 这个口子只监听回环，但改的是「全权限 CC 跑在哪、带什么权限」的开关，值得过一遍。
- *
- * 网关 token 页面上拿不到原值（见 web.ts 的 publicTemplate），所以：`token` 没传 = 沿用已存的
- * （模板改过名的按 `gateway.from` 找回来），传了空串才是清掉。
  */
 export function sanitizeConfig(body: any, cfg: Config): EditableConfig {
   const templates: Record<string, Template> = {};
@@ -356,17 +449,15 @@ export function sanitizeConfig(body: any, cfg: Config): EditableConfig {
     if (!key) continue;
     const o = (v ?? {}) as any;
     const t: Template = {};
+    if (o.agent === 'codex') t.agent = 'codex';
+    if (o.codexSandbox !== 'read-only' && CODEX_SANDBOXES.includes(o.codexSandbox)) t.codexSandbox = o.codexSandbox;
+    if (typeof o.codexEffort === 'string' && /^[\w-]{1,64}$/.test(o.codexEffort)) t.codexEffort = o.codexEffort;
     if (str(o.project)) t.project = str(o.project);
-    if (isModelName(o.model)) t.model = o.model.trim();
+    if (o.agent === 'codex' ? typeof o.model === 'string' && /^\S{1,256}$/.test(o.model.trim()) : isModelName(o.model)) t.model = o.model.trim();
     if (PERMISSION_MODES.includes(o.permissionMode)) t.permissionMode = o.permissionMode;
     if (str(o.prompt)) t.prompt = str(o.prompt);
     if (str(o.judge)) t.judge = str(o.judge);
-    const url = str(o.gateway?.baseUrl).replace(/\/+$/, '');
-    if (/^https?:\/\/\S+$/.test(url)) {
-      const old = cfg.templates[str(o.gateway.from) || key]?.gateway;
-      const token = typeof o.gateway.token === 'string' ? o.gateway.token.trim() : old?.token;
-      t.gateway = token ? { baseUrl: url, token } : { baseUrl: url };
-    }
+    if ((cfg.apis ?? []).some((a) => a.name === str(o.api))) t.api = str(o.api);
     const cs = o.claudeSettings;
     if (cs && typeof cs === 'object' && !Array.isArray(cs) && Object.keys(cs).length) t.claudeSettings = cs;
     if (Array.isArray(o.claudeArgs)) {
@@ -405,6 +496,35 @@ export function sanitizeConfig(body: any, cfg: Config): EditableConfig {
     bot: mode(body?.bot, cfg.bot),
     pollMs: num(body?.pollMs, 3_000, 3_600_000, cfg.pollMs),
     maxJobs: num(body?.maxJobs, 1, 10, cfg.maxJobs),
-    judgeModel: isModelName(body?.judgeModel) ? body.judgeModel.trim() : cfg.judgeModel,
   };
+}
+
+/**
+ * API 来源表过一遍（设置的「API」页保存）。令牌页面上拿不到原值：没传 = 沿用已存的（改过名的按 `from` 找回来），
+ * 传了空串才是清掉。名字不能空、不能重；网关的地址要是 http(s)。坏的整条不收，报出来
+ */
+export function sanitizeApis(list: unknown, cur: Api[]): { apis: Api[]; errors: string[] } {
+  const apis: Api[] = [];
+  const errors: string[] = [];
+  for (const [i, v] of (Array.isArray(list) ? list : []).entries()) {
+    const o = (v ?? {}) as any;
+    const name = str(o.name) || `来源 ${i + 1}`;
+    if (apis.some((a) => a.name === name)) { errors.push(`「${name}」重名了`); continue; }
+    const kind = o.kind === 'subscription' ? 'subscription' : 'gateway';
+    const a: Api = { name, kind };
+    if (kind === 'gateway') {
+      const url = str(o.baseUrl).replace(/\/+$/, '');
+      if (!/^https?:\/\/\S+$/.test(url)) { errors.push(`「${name}」的地址要是 http(s)://…`); continue; }
+      a.baseUrl = url;
+    }
+    const old = cur.find((x) => x.name === (str(o.from) || name));
+    const token = typeof o.token === 'string' ? o.token.trim() : old?.token;
+    if (token) a.token = token;
+    const bad = TIERS.filter((t) => str(o.models?.[t]) && !isModelName(o.models[t]));
+    if (bad.length) { errors.push(`「${name}」${bad.join(' / ')} 那档的模型名不对`); continue; }
+    const models = Object.fromEntries(TIERS.filter((t) => str(o.models?.[t])).map((t) => [t, str(o.models[t])]));
+    if (Object.keys(models).length) a.models = models;
+    apis.push(a);
+  }
+  return { apis, errors };
 }

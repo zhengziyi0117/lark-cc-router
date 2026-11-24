@@ -1,6 +1,6 @@
 # lark-cc-router
 
-在飞书里有人找你 → 本机的 Claude Code 去翻代码、查日志 → 答案以一张**流式卡片**回在那条消息下面。
+在飞书里有人找你 → 本机的 Claude Code 或 Codex CLI 去翻代码、查日志 → 答案以一张**流式卡片**回在那条消息下面。
 
 两个入口，可以都开，也可以只开一个：
 
@@ -12,7 +12,7 @@
 | 卡片 | 每 1.2 秒整张刷新一次 | 打字机效果的流式卡片 |
 | 默认 | 开 | 关 |
 
-排查用的是同一套 CC、同一份模板库。使用示例见 [doc/examples.md](doc/examples.md)，原理见 [doc/](doc/)。
+两个入口共用模板库，每个模板可以选自己的执行器。群里在原话题继续 @，私聊引用卡片追问，就能接上同一次排查。使用示例见 [doc/examples.md](doc/examples.md)，原理见 [doc/](doc/)。
 
 **适合**：值班被 @ 问线上问题，查了什么、结论是什么，群里所有人都看得见；同事问某个项目的实现细节；你不在电脑前，问题也不急。
 
@@ -25,10 +25,11 @@
 ## 快速开始
 
 ```bash
-# 0. 前置：Node ≥ 24、已登录可用的 claude、已装好的 lark-cli
-node -v && claude --version && lark-cli doctor
+# 0. 前置：Node ≥ 24、已装好的 lark-cli、已登录的执行器
+node -v && lark-cli doctor
+# 用 Codex 时运行 codex login status，用 Claude Code 时运行 claude --version
 
-# 1. 装依赖（只有一个 marked）
+# 1. 安装依赖
 npm i
 
 # 2. 建飞书应用、开权限：见下一节「飞书应用与权限」
@@ -45,6 +46,10 @@ npm start
 ```
 
 打开 **http://127.0.0.1:8787**，在左边点一个会话，在它顶部打开「自动回」。**没打开就不会响应**。`config.json` 里没有必填项，但模板没配 `project` 的会话会直接跳过。
+
+**用 Codex 回答**。路由器连接已经运行的 Codex App Server，用你本机 Codex 的登录和默认模型（「设置 → Codex」里只看不改，那边开关 MCP / 插件）。左侧选模板后点「执行器 → Codex」，可以为这个模板单独选择模型和强度。权限跟 Claude 一样三档（只读 / 可改 / 全放开），默认只读。同一话题里的追问会追加到正在运行的轮次，答复继续更新在原卡片上。
+
+默认通过 `codex app-server proxy` 连接本机守护进程。连接其他已有实例时，设置 `LCR_CODEX_ENDPOINT`，例如 `ws://127.0.0.1:4500` 或 `unix:///path/to/app-server.sock`。可用 `LCR_CODEX` 指定代理使用的 Codex 可执行文件。
 
 **确认它在工作**：在开了自动回的群里 @自己 问一句真问题（要用 `SELF=1 npm start` 启动，否则你自己发的消息会被忽略），大约 2 分钟后，卡片会出现在那条消息的话题里。不想在群里刷屏的话，用 web UI 的「试跑」：卡片以你的身份发给你自己（不进群），飞书这条路不通会当场报出来；不写去重记录。
 
@@ -125,7 +130,7 @@ npm start
 
 检查是否就绪：`lark-cli event consume im.message.receive_v1 --as bot --dry-run`，`status` 是 `ready` 就行。
 
-机器人背后是能执行命令的 CC，公司里谁都能私聊它，所以**默认是关的**。打开之前，先把它的默认模板设成只读（设置 → 通用里，不是只读会标黄）。只想在某个群里用的话：关掉它的「所有私聊」「所有群」，然后在那个群的会话顶部打开「@机器人 自动回」。
+机器人背后是能执行命令的 CC，公司里谁都能私聊它，所以**默认是关的**。打开之前，先把它的默认模板设成只读（设置 → @机器人 里会列出它够得着的、不是只读的模板）。只想在某个群里用的话：关掉它的「所有私聊」「所有群」，然后在那个群的会话顶部打开「@机器人 自动回」。
 
 ## 配置
 
@@ -138,18 +143,23 @@ npm start
   "pollMs": 60000,                   // @我 多久搜一轮。索引延迟本来就有分钟级，调得比 60 秒还小没意义
   "maxJobs": 3,                      // 同时最多跑几个 CC（两个入口共用）
   "stateDir": "state",
-  "judgeModel": "claude-haiku-4-5",  // 「先判定」用的模型
-  "gateway": { "baseUrl": "…", "token": "…" },  // 可选：默认网关，模板没单独配网关时用它
+  // API 来源，按顺序用：前一个额度用完 / 限流 / 令牌失效，自动换下一个接着跑。不配就跟 claude 自己的配置走
+  "apis": [
+    // models：每一档在这个来源上叫什么（只认一个名字的网关三档都填它）；haiku 那档「先判定」也用
+    { "name": "公司网关", "kind": "gateway", "baseUrl": "http://gw.example.com", "token": "…",
+      "models": { "opus": "claude-auto", "sonnet": "claude-auto", "haiku": "claude-auto" } },
+    { "name": "我的订阅", "kind": "subscription" }   // token 可选：claude setup-token 的令牌；订阅直接认档位，不用 models
+  ],
 
   // ---- 模板：一个模板 = 一套「在哪查、怎么回」，两个入口共用 ----
   "templates": {
     "排障": {
       "project": "~/code/my-service",            // 在哪个仓库里跑 claude
-      "model": "opus",                            // claude --model；不填就用 claude 自己的默认
+      "model": "opus",                            // 档位 opus / sonnet / haiku（各来源上叫什么看 apis 的 models），或完整模型名；不填 = claude 默认
       "permissionMode": "plan",                   // plan = 只读；auto = 自动（默认）；bypassPermissions = 全放开
       "prompt": "只回答本项目相关的问题。",        // 系统提示词。留空 = 不加任何系统提示词
       "judge": "你在帮我筛飞书里 @我 的消息…",     // 填了就先判定要不要回；不填 = 每条都回
-      "gateway": { "baseUrl": "http://gw.example.com", "token": "…" },  // 不填走顶层 gateway，再没有就用 ~/.claude/settings.json
+      "api": "公司网关",                           // 可选：固定用某一个来源（不换）；不填 = 按 apis 的顺序
       "claudeSettings": { "env": { "ANTHROPIC_MODEL": "xxx" } },        // 叠加给 claude --settings
       "claudeArgs": ["--max-turns", "30"],
       "self": false                               // 是否也处理你自己发的消息（自测用）

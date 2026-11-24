@@ -2,11 +2,14 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
-import { expandProject, HOME_DIR, isModelName, loadConfig, migrate, rawConfig, saveConfig, type Config } from '../config.ts';
+import { apiEnv, expandProject, HOME_DIR, JUDGE_MODEL, loadConfig, migrate, publicApi, rawConfig, resolveChat, routingTemplates, sanitizeApis, saveConfig, type Api, type Config, type Template } from '../config.ts';
 import { bin, killTree, WIN } from '../bins.ts';
+import { codexConnection, codexSettings, updateCodexSettings } from '../codex.ts';
 import { broadcast } from '../bus.ts';
-import { pingGateway } from '../judge.ts';
+import { judgeTargets, pingGateway } from '../judge.ts';
+import { apiHealth } from '../pipeline.ts';
 import { NEED } from '../app.ts';
+import { userAuth } from '../lark.ts';
 import { gitEnv } from './git.ts';
 import { git } from './workspace.ts';
 import { preset } from './preset.ts';
@@ -43,31 +46,64 @@ export function why(r: Run): string {
 
 /* ---------- 模型 ---------- */
 
-/** 向导配的就是这两样：默认网关（顶层 gateway）+ 默认模板的模型 */
-const modelOf = (cfg: Config) => ({ gw: cfg.gateway, model: cfg.templates[cfg.user.defaultTemplate]?.model ?? '' });
-const keyOf = (gw: { baseUrl: string; token?: string }, model: string) => `${gw.baseUrl}\n${gw.token}\n${model}`;
+const keyOf = (a: Api) => JSON.stringify([a.kind, a.baseUrl, a.token, a.models]);
 
-/** 上次测网关的结果。向导每次刷新都调 sections()，不能每次真打一遍网关 —— 配置变了（key 对不上）才重测 */
+/**
+ * 网关上要测的模型名 → 哪几档用它。opus / sonnet 只测填了映射的（没填的用 Claude Code 自己的名字，
+ * 具体叫什么随版本变，测不了）；haiku 那档判定和 claude 的后台小任务都要用，没填也测原名
+ */
+export function probeNames(a: Api): [string, string[]][] {
+  const m = new Map<string, string[]>();
+  const add = (name: string, tier: string) => m.set(name, [...(m.get(name) ?? []), tier]);
+  if (a.models?.opus) add(a.models.opus, 'opus');
+  if (a.models?.sonnet) add(a.models.sonnet, 'sonnet');
+  add(a.models?.haiku || JUDGE_MODEL, 'haiku');
+  return [...m];
+}
+
+/** 把网关上要用到的名字都打一遍。一个不认就算没通：说清是哪档、在「快」「强」哪格改 */
+async function probeGateway(a: Api): Promise<{ ok: boolean; detail: string; ms: number }> {
+  const names = probeNames(a);
+  const rs = await Promise.all(names.map(([n]) => pingGateway(n, { baseUrl: a.baseUrl!, token: a.token })));
+  const ok = rs.every((r) => r.ok);
+  const detail = names.map(([n, tiers], i) => `${tiers.join(' / ')} → ${n} ${rs[i].ok ? '✓' : `✗ ${rs[i].detail}`}`).join('；')
+    + (ok ? '' : '。不认的那档在这个来源上填它认的模型名');
+  return { ok, detail, ms: Math.max(...rs.map((r) => r.ms)) };
+}
+
+/** 上次测的结果。向导每次刷新都调 sections()，不能每次真打一遍 —— 配置变了（key 对不上）才重测 */
 let tested: { key: string; ok: boolean; detail: string } | undefined;
 let testing = '';
 
+/** 向导只看第一个来源（平时用的就是它），后面的是备用 */
 function modelSection(cfg: Config): Section {
-  const { gw, model } = modelOf(cfg);
   const check = (state: Check['state'], detail: string): Section =>
-    ({ id: 'model', title: '模型', checks: [{ id: 'gateway', label: '模型网关', state, detail }] });
-  if (!gw?.baseUrl || !gw.token) return check('missing', '还没配网关地址和 token');
-  if (!model) return check('missing', '还没选模型');
-  const key = keyOf(gw, model);
-  if (tested?.key === key) return check(tested.ok ? 'ok' : 'error', `${model} · ${tested.detail}`);
+    ({ id: 'model', title: '模型', checks: [{ id: 'gateway', label: 'API 来源', state, detail }] });
+  const a = cfg.apis[0];
+  if (!a) return check('missing', '还没配：网关或 Claude 订阅，至少一个');
+  const more = cfg.apis.length > 1 ? `；另有 ${cfg.apis.length - 1} 个备用，出问题自动换` : '';
+  if (a.kind === 'subscription') return check('ok', `「${a.name}」Claude 订阅${more}`);
+  if (!a.token) return check('missing', `「${a.name}」还没填令牌`);
+  const key = keyOf(a);
+  if (tested?.key === key) return check(tested.ok ? 'ok' : 'error', `「${a.name}」${tested.detail}${more}`);
   if (testing !== key) {
     testing = key;
-    void pingGateway(model, gw).then((r) => {
+    void probeGateway(a).then((r) => {
       tested = { key, ok: r.ok, detail: r.detail };
       if (testing === key) testing = '';
       progress('model', r.detail, { ok: r.ok });
     });
   }
   return check('running', '正在测网关…');
+}
+
+/** 测一个来源通不通。网关把要用到的模型名都打一下；订阅不能直接调 API（令牌只认 Claude Code），让 claude 自己答一句 */
+async function testApi(a: Api): Promise<{ ok: boolean; detail: string; ms?: number }> {
+  if (a.kind === 'gateway') return probeGateway(a);
+  const t0 = Date.now();
+  const env = { ...process.env, ...apiEnv(a) };
+  const r = await run(bin('claude'), ['-p', '只回一个字：好'], { env, timeout: 90_000 });
+  return r.code === 0 ? { ok: true, detail: `通了：${r.out.trim().slice(0, 40)}`, ms: Date.now() - t0 } : { ok: false, detail: why(r) };
 }
 
 /**
@@ -81,32 +117,33 @@ async function publish(cfg: Config): Promise<void> {
   if (typeof web.editorConfig === 'function') broadcast({ type: 'config', config: web.editorConfig(cfg) });
 }
 
-const saveModel: Handler = async (body, { cfg }) => {
-  const baseUrl = String(body?.baseUrl ?? '').trim().replace(/\/+$/, '');
-  if (!/^https?:\/\/\S+$/.test(baseUrl)) return { ok: false, error: '地址要是 http(s)://…' };
-  if (!isModelName(body?.model)) return { ok: false, error: '模型名不对' };
-  const model = body.model.trim();
-  // token 页面上拿不到原值：没传 = 沿用已存的
-  const token = (typeof body?.token === 'string' && body.token.trim()) || cfg.gateway?.token;
-  if (!token) return { ok: false, error: '缺 token' };
-  const gw = { baseUrl, token };
-
-  // 判定也打这个网关。内置的判定模型（claude-haiku-4-5）网关不一定认 —— 公司网关只认 claude-auto 这类，
-  // 不认就跟主模型用同一个：判定只做一次分类，贵一点也比每条 @ 都判失败强
-  const [r, j] = await Promise.all([pingGateway(model, gw), cfg.judgeModel === model ? undefined : pingGateway(cfg.judgeModel, gw)]);
-  if (!r.ok) return { ok: false, error: r.detail };
-  tested = { key: keyOf(gw, model), ok: true, detail: r.detail };
-
+/**
+ * 存 API 来源表。改了名的，固定用它的模板跟着改名；删掉的，固定用它的模板就不固定了。
+ * 判定用哪个模型跟着来源的 haiku 那档走，网关认不认在「测一下」和向导里看得到，这里不替人改
+ */
+const saveApis: Handler = async (body, { cfg }) => {
+  const { apis, errors } = sanitizeApis(body?.apis, cfg.apis);
+  if (errors.length) return { ok: false, error: errors.join('；') };
+  const renamed = new Map<string, string>();
+  for (const o of Array.isArray(body?.apis) ? body.apis : []) if (o?.from && o.from !== String(o.name ?? '').trim()) renamed.set(String(o.from), String(o.name).trim());
   // 模板从文件读，不拿内存里的 cfg：那份被 SELF=1 之类的调试开关改过，写回去就落盘了
   const raw = migrate(rawConfig());
-  const name = cfg.user.defaultTemplate;
-  saveConfig({
-    gateway: gw,
-    templates: { ...raw.templates, [name]: { ...raw.templates?.[name], model } },
-    ...(j && !j.ok ? { judgeModel: model } : {}),
-  });
+  const templates = Object.fromEntries(Object.entries<any>(raw.templates ?? {}).map(([k, t]) => {
+    const { api, ...rest } = t ?? {};
+    const n = renamed.get(api) ?? api;
+    return [k, apis.some((a) => a.name === n) ? { ...rest, api: n } : rest];
+  }));
+  saveConfig({ apis, templates });
   await publish(cfg);
-  return { ok: true, detail: r.detail };
+  return { ok: true };
+};
+
+/** 测表里的一条（可能刚改、还没存）。令牌没传就用存着的那个（改过名的按 from 找） */
+const testOne: Handler = async (body, { cfg }) => {
+  const { apis, errors } = sanitizeApis([body], cfg.apis);
+  if (!apis[0]) return { ok: false, error: errors[0] ?? '填得不对' };
+  // 包一层：测不通不算接口出错（ok:false 页面会当成异常抛）
+  return { result: await testApi(apis[0]) };
 };
 
 /* ---------- 飞书 ---------- */
@@ -139,14 +176,17 @@ async function larkSection(): Promise<Section> {
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 
-/** 绑定已有应用。都不填 = 团队预置的那个；secret 走 stdin，不进命令行（ps 看得到） */
-const larkApp: Handler = async (body) => {
+/** 绑定已有应用（换应用也走这儿）。都不填 = 团队预置的那个；secret 走 stdin，不进命令行（ps 看得到） */
+const larkApp: Handler = async (body, { cfg }) => {
   const p = preset().larkApp;
   const appId = str(body?.appId) || p.appId;
   const secret = str(body?.appSecret) || (appId === p.appId ? p.appSecret : '');
   if (!/^cli_\w+$/.test(appId) || !secret) return { ok: false, error: '要填 App ID（cli_ 开头）和 App Secret' };
   const r = await run(bin('lark-cli'), ['config', 'init', '--app-id', appId, '--app-secret-stdin'], { input: `${secret}\n` });
-  return r.code === 0 ? { ok: true } : { ok: false, error: why(r) };
+  if (r.code !== 0) return { ok: false, error: why(r) };
+  // 换应用会清掉登录：「我」也清了，轮询就会停下来等重新扫码，而不是拿着旧身份一轮轮报错
+  cfg.me = '';
+  return { ok: true };
 };
 
 /** lark-cli 只肯往 cwd、/tmp、~/files 底下写 PNG（Windows 没有 /tmp）：cwd 设成临时目录、给相对路径 */
@@ -164,7 +204,7 @@ async function qrcode(url: string): Promise<string> {
 /** 在等扫码的那个 `--device-code`。只等最新的一个：点了两次「扫码」，旧码作废 */
 let waiting: ChildProcess | undefined;
 
-const larkLogin: Handler = async () => {
+const larkLogin: Handler = async (_b, { cfg }) => {
   const scope = [...new Set([...NEED, ...preset().larkScopes.split(/\s+/)])].filter(Boolean).join(' ');
   const r = await run(bin('lark-cli'), ['auth', 'login', '--no-wait', '--json', '--scope', scope]);
   let j: any = {};
@@ -181,6 +221,8 @@ const larkLogin: Handler = async () => {
   const done = (code: number) => {
     if (waiting !== c) return; // 被新的一次顶掉了，或者 error 之后又来了 close
     waiting = undefined;
+    // 重新扫码可能换了个人（lark-cli 登录是替换不是追加）：「我」马上跟着换，不用重启
+    if (code === 0) void userAuth().then((u) => { cfg.me = u.openId; }).catch(() => {});
     progress('lark', code === 0 ? '飞书登录好了' : `登录没成：${why({ ...res, code })}`, { ok: code === 0 });
   };
   c.on('error', (e) => { res.err += e.message; done(-1); });
@@ -636,23 +678,48 @@ const mcpLogout: Handler = async (body) => {
 
 /* ---------- 汇总 ---------- */
 
+/** 开了「先判定」却没处可打的模板（只有订阅、settings.json 里也没令牌）：每条都会按要回处理，等于白开 */
+export function judgeless(cfg: Pick<Config, 'templates' | 'apis'>, templates: Template[]): string[] {
+  const names = Object.entries(cfg.templates).filter(([, t]) => templates.includes(t) && t.judge).map(([n]) => n);
+  return names.filter((n) => !judgeTargets(resolveChat({ chats: {}, templates: cfg.templates, defaultTemplate: n, apis: cfg.apis }, '').apis).length);
+}
+
 export async function sections(cfg: Config): Promise<Section[]> {
-  // 没预置插件就不出这一段：加插件在 设置 → Claude Code 里
-  return [modelSection(cfg), await larkSection(), ...(preset().plugins.length ? [pluginSection()] : [])];
+  const templates = routingTemplates(cfg);
+  const claude = templates.some((t) => t.agent !== 'codex');
+  const model: Section = claude || templates.some((t) => t.judge) ? modelSection(cfg) : {
+    id: 'model', title: '模型', checks: [],
+  };
+  const lost = judgeless(cfg, templates);
+  if (lost.length) model.checks.push({ id: 'judge', label: '判定', state: 'missing',
+    detail: `模板「${lost.join('」「')}」开了先判定，但没有网关可打（订阅不能直接调 API）：每条都会按要回处理。加一个网关，或者在模板里关掉判定`,
+    optional: true });
+  if (templates.some(t => t.agent === 'codex')) {
+    const check: Check = { id: 'codex', label: 'Codex App Server', state: 'ok' };
+    try { check.detail = await codexConnection(); }
+    catch (e: any) { check.state = 'error'; check.detail = e.message; }
+    model.checks.push(check);
+  }
+  return [model, await larkSection(), ...(claude && preset().plugins.length ? [pluginSection()] : [])];
 }
 
 export const routes: Record<string, Handler> = {
-  'GET /api/setup/model': async (_b, { cfg }) => {
-    const { gw, model } = modelOf(cfg);
-    return { baseUrl: gw?.baseUrl ?? '', model, hasToken: !!gw?.token };
-  },
-  'POST /api/setup/model': saveModel,
+  'GET /api/setup/model': async (_b, { cfg }) => ({
+    apis: cfg.apis.map(publicApi),
+    health: Object.fromEntries(cfg.apis.flatMap((a) => { const h = apiHealth(a.name); return h ? [[a.name, h]] : []; })),
+  }),
+  'POST /api/setup/apis': saveApis,
+  'POST /api/setup/apis/test': testOne,
   'POST /api/setup/lark/app': larkApp,
   'POST /api/setup/lark/login': larkLogin,
   'POST /api/setup/plugin/install': installPlugin,
   'POST /api/setup/mcp/login': mcpLogin,
   'POST /api/setup/mcp/logout': mcpLogout,
   'GET /api/setup/cc': ccStatus,
+  'GET /api/setup/codex': codexSettings,
+  'POST /api/setup/codex': updateCodexSettings,
+  'GET /api/setup/codex/settings': codexSettings,
+  'POST /api/setup/codex/settings': updateCodexSettings,
   'GET /api/setup/cc/available': ccAvailable,
   'POST /api/setup/cc/plugin': ccPlugin,
   'POST /api/setup/cc/marketplace': ccMarket,

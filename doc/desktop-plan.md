@@ -115,7 +115,7 @@ Electron 主进程 (desktop/main.js)
 
 clone / create / add-existing 完成时，默认模板还没项目（或者指的目录没了）就自动指过去，不用再点「用」。
 
-设置页用：`GET /api/projects` → `{ projects, workspaces: [{ name, path }], canPick }`；`POST /api/pick-folder` → `{ path | null }`（只有桌面版有，弹系统选目录框，主进程通过 `web.ts` 的 `setPickFolder` 塞进来）。
+设置页、试跑的项目选择器用：`GET /api/projects` → `{ workspaces: [{ name, path, managed }], canPick, home }`；`POST /api/pick-folder` → `{ path | null }`（弹系统选目录框：桌面版是主进程通过 `web.ts` 的 `setPickFolder` 塞进来的 Electron dialog，命令行版在 mac 上用 osascript 弹 Finder 的，别的平台没有、只能粘贴路径）。选过的目录登记成工作区，`POST /api/setup/workspace/forget` 把它从列表里去掉（不删文件；`managed` = workspaces/ 下向导拉的，不让去掉）。
 
 ## 分工
 

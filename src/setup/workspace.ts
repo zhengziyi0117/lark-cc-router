@@ -274,8 +274,11 @@ export async function adoptWorkspace(cfg: Config): Promise<void> {
   if (w) await useIfUnset(cfg, w.path);
 }
 
+/** workspaces/ 下面那些：向导拉 / 建的，在「上手向导 → 代码」里管。剩下的是在别处选过、登记进来的目录 */
+const managed = (path: string) => same(dirname(path), ROOT_DIR);
+
 /** 设置页「项目」下拉的候选 */
-export const workspaceList = () => Object.entries(all()).map(([name, w]) => ({ name, path: w.path }));
+export const workspaceList = () => Object.entries(all()).map(([name, w]) => ({ name, path: w.path, managed: managed(w.path) }));
 
 export const routes: Record<string, Handler> = {
   'GET /api/setup/workspace/list': async (_b, { cfg }) => ({
@@ -383,6 +386,15 @@ export const routes: Record<string, Handler> = {
     if (statSync(join(real, '.git'), { throwIfNoEntry: false })?.isFile()) throw new Error(`${name} 是 ${w.name} 自带的子模块，不能单独删`);
     rmSync(real, { recursive: true, force: true, maxRetries: 3 });
     save(w.name, { path: w.path, at: w.at, repos: w.repos.filter((r) => !same(r.path, dir)) });
+    return { ok: true };
+  },
+
+  /** 项目下拉里 × 掉一个选过的目录：只是不再列出来，不碰文件，模板已经指着它的照样用 */
+  'POST /api/setup/workspace/forget': async (b) => {
+    const w = workspace(b?.workspace);
+    if (managed(w.path)) throw new Error(`${w.name} 是「上手向导 → 代码」里拉的，在那边管`);
+    const { [w.name]: _, ...rest } = load();
+    writeFileSync(STORE, JSON.stringify(rest, null, 2));
     return { ok: true };
   },
 

@@ -37,7 +37,7 @@ while :; do sleep 1; done
   process.env.LCR_CLAUDE = join(dir, 'claude');
 
   const cfg = {
-    me: 'ou_me', port: 0, pollMs: 0, maxJobs: 3, stateDir: '', judgeModel: 'm', templates: { t: { project: dir } },
+    me: 'ou_me', port: 0, pollMs: 0, maxJobs: 3, stateDir: '', templates: { t: { project: dir } },
     on: true, defaultTemplate: 't', chats: {}, allP2p: false, allGroups: false,
   } as unknown as Scope;
   runTest(cfg, new Pool(3), new Db(dir), { chatId: '', project: dir, prompt: '试跑一下' });

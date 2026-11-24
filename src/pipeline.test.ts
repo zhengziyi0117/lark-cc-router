@@ -4,6 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  apiHealth,
   anchorOf, claudeArgsFor, drain, stopJob, imageKeys, investigate, isForMe, isSkip, shouldOpenThread, sinceFor, onBotMessage, rerunMessage, closeOrphans,
   type Deps,
 } from './pipeline.ts';
@@ -77,6 +78,7 @@ test('开话题的时机：动了工具、或者开口说了句不是 SKIP 的�
   assert.equal(shouldOpenThread({ kind: 'result', id: 't1', text: 'x', isError: false }), false);
   assert.equal(shouldOpenThread({ kind: 'init', sessionId: 's' }), false);
   assert.equal(shouldOpenThread({ kind: 'text', text: 'SKIP' }), false, 'SKIP 就别开话题了');
+  assert.equal(shouldOpenThread({ kind: 'text', text: 'SK', partial: true }), false);
   assert.equal(shouldOpenThread({ kind: 'text', text: '  SKIP  ' }), false);
   assert.equal(shouldOpenThread({ kind: 'text', text: '   ' }), false, '空正文不算开口');
 });
@@ -118,7 +120,7 @@ test('搜索是全量的，没勾进白名单的会话要滤掉', () => {
 const tmpDb = () => new Db(mkdtempSync(join(tmpdir(), 'lcr-pipe-')));
 /** 服务级 + 两个入口；chat 在 @我 的白名单里，@机器人 开着 */
 const fullCfg = (chat: string): Config => ({
-  me: ME, port: 0, pollMs: 0, maxJobs: 3, stateDir: '', judgeModel: 'm',
+  me: ME, port: 0, pollMs: 0, maxJobs: 3, stateDir: '',
   templates: { t: { project: tmpdir() } },
   user: { on: true, defaultTemplate: 't', chats: { [chat]: '' }, allP2p: false, allGroups: false },
   bot: { on: true, defaultTemplate: 't', chats: {}, allP2p: true, allGroups: true },
@@ -158,6 +160,15 @@ function fake(script: (o: RunOptions, n: number) => Promise<RunResult>) {
 }
 const emit = (o: RunOptions, ...evs: AgentEvent[]) => evs.forEach((e) => o.onEvent?.(e));
 const resumeOf = (o: RunOptions) => { const i = o.claudeArgs.indexOf('--resume'); return i < 0 ? undefined : o.claudeArgs[i + 1]; };
+/** 这次交给 claude 的那份 --settings（没有 = {}） */
+const settingsOf = (o: RunOptions) => { const i = o.claudeArgs.indexOf('--settings'); return i < 0 ? {} : JSON.parse(readFileSync(o.claudeArgs[i + 1], 'utf8')); };
+/** 开判定：判定只打网关，所以得配一个（配了网关 claude 就会写 --settings 文件，stateDir 指到临时目录） */
+const withJudge = <T extends Config>(c: T): T => {
+  c.templates.t.judge = '判一下';
+  c.apis = [{ name: 'gw', kind: 'gateway', baseUrl: 'http://gw.local', token: 'tk' }];
+  c.stateDir = mkdtempSync(join(tmpdir(), 'lcr-judge-'));
+  return c;
+};
 /** 跑到被 abort 为止 */
 const untilAborted = (o: RunOptions) => new Promise<RunResult>((r) =>
   o.signal!.addEventListener('abort', () => r({ text: '', ok: false }), { once: true }));
@@ -195,6 +206,35 @@ test('话题里追问：掐掉还在跑的那次，接着它的 session 问', as
   const rows = Object.fromEntries(db.recent(10).map((r) => [r.msgId, r]));
   assert.equal(rows.om_1.error, '被追问打断');
   assert.equal(rows.om_2.status, 'done');
+});
+
+test('Codex 在跑时接收话题补充，两条消息共用一个并发名额和一张卡片', { timeout: 3000 }, async () => {
+  const db = tmpDb(), cfg = testCfg('oc_codex'), pool = new Pool(1);
+  cfg.templates.t.agent = 'codex';
+  const finish = Promise.withResolvers<void>();
+  const received: string[] = [];
+  const f = fake(async o => {
+    o.onSteerReady!(async prompt => { received.push(prompt); return true; });
+    emit(o, { kind: 'init', sessionId: 'codex:s1' }, { kind: 'text', text: '正在查' });
+    await finish.promise;
+    assert.equal(o.signal!.aborted, false);
+    emit(o, { kind: 'text', text: '查到了' });
+    return { ok: true, text: '查到了', sessionId: 'codex:s1' };
+  });
+  f.deps.threadIdOf = async () => 'omt_codex';
+  const first = investigate(cfg, pool, db, msg({ message_id: 'om_first', chat_id: 'oc_codex' }), f.deps);
+  try {
+    await tick();
+    assert.equal(db.sessionFor('omt_codex'), 'codex:s1');
+    await investigate(cfg, pool, db, msg({ message_id: 'om_more', chat_id: 'oc_codex', thread_id: 'omt_codex', content: '只查昨天' }), f.deps);
+    assert.equal(f.calls.length, 1);
+    assert.deepEqual(f.replies, ['om_first']);
+    assert.equal(received.length, 1);
+    assert.match(received[0], /只查昨天/);
+    assert.equal(db.sessionFor('om_more'), 'codex:s1');
+    assert.match(db.recent(2).find(r => r.msgId === 'om_more')!.reason!, /原卡片/);
+  } finally { finish.resolve(); await first; }
+  assert.deepEqual(db.recent(2).map(r => r.status), ['done', 'done']);
 });
 
 test('群里直接 @我 是新问题：不掐同群在跑的，也不接它的 session', async () => {
@@ -274,11 +314,42 @@ test('截图下下来，路径拼进 prompt，目录用 --add-dir 放行；下�
 
 /* ---------- 判定：CC 起来之前先判要不要回 ---------- */
 
-const judgedCfg = (chat: string): Scope => {
-  const c = testCfg(chat);
-  c.templates.t.judge = '判一下';
-  return c;
-};
+test('同一张卡片切执行器就新开，Codex 追问续原线程，Claude 的设置和来源只交给 Claude', async () => {
+  const db = tmpDb();
+  const cfg = testCfg('oc_switch');
+  Object.assign(cfg.templates.t, { agent: 'codex', model: 'local-model', claudeArgs: ['--verbose'], permissionMode: 'bypassPermissions' });
+  cfg.stateDir = mkdtempSync(join(tmpdir(), 'lcr-switch-'));
+  cfg.apis = [{ name: '订阅', kind: 'subscription', models: { opus: 'claude-only' } }];
+  db.setSession('topic', 'old-claude');
+  const f = fake(async (o) => {
+    emit(o, { kind: 'init', sessionId: o.codex ? 'codex:new' : 'new-claude' }, { kind: 'text', text: '答复' });
+    return { ok: true, text: '答复' };
+  });
+  f.deps.threadIdOf = async () => 'topic';
+  const ask = (id: string) => investigate(cfg, new Pool(1), db, msg({ message_id: id, chat_id: 'oc_switch', thread_id: 'topic', content: '看 ![图](img_a)' }), f.deps);
+  await ask('om_first');
+  assert.deepEqual(f.calls[0].codex, { model: 'local-model', sandbox: 'read-only', images: ['/tmp/lark-cc-router/om_first/img_a.jpg'], resume: undefined });
+  assert.deepEqual(f.calls[0].claudeArgs, []);
+  assert.equal(db.sessionFor('topic'), 'codex:new');
+  await ask('om_resume');
+  assert.equal(f.calls[1].codex?.resume, 'new');
+  cfg.templates.t.project = join(tmpdir(), 'other-project');
+  await ask('om_other_project');
+  assert.equal(f.calls[2].codex?.resume, undefined);
+  cfg.templates.t.agent = 'claude';
+  await ask('om_other');
+  assert.equal(f.calls[3].codex, undefined);
+  assert.equal(resumeOf(f.calls[3]), undefined);
+  assert.equal(settingsOf(f.calls[3]).env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'claude-only');
+  cfg.templates.t.agent = 'codex';
+  cfg.templates.t.prompt = '改用新的回答格式';
+  db.setSession('topic', 'codex:new');
+  await ask('om_changed_prompt');
+  assert.equal(f.calls[4].systemPrompt, '改用新的回答格式');
+  assert.equal(f.calls[4].codex?.resume, undefined, 'Codex 在旧线程上会保留旧的模板指令');
+});
+
+const judgedCfg = (chat: string): Scope => withJudge(testCfg(chat));
 
 test('模板没选判定 = 直接回：不判，全交给 CC', async () => {
   const f = fake(async (o) => { emit(o, { kind: 'text', text: '答' }); return { text: '答', ok: true }; });
@@ -367,24 +438,132 @@ test('网关 / CC settings 写成 0600 文件传路径，token 不进 argv；没
   assert.equal(claudeArgsFor(cfg, 'oc_gw').includes('--settings'), false);
   assert.equal(existsSync(join(cfg.stateDir, 'claude-settings')), false, '没配就别写文件');
 
-  cfg.templates.t.gateway = { baseUrl: 'http://gw.local', token: 'secret-tk' };
-  const a = claudeArgsFor(cfg, 'oc_gw');
+  const gw = { name: 'gw', kind: 'gateway', baseUrl: 'http://gw.local', token: 'secret-tk' } as const;
+  const a = claudeArgsFor(cfg, 'oc_gw', gw);
   assert.ok(!a.join(' ').includes('secret-tk'), 'token 不能出现在 argv 里');
   const p = a[a.indexOf('--settings') + 1];
   assert.equal(statSync(p).mode & 0o777, 0o600);
   assert.equal(JSON.parse(readFileSync(p, 'utf8')).env.ANTHROPIC_AUTH_TOKEN, 'secret-tk');
-  assert.equal(claudeArgsFor(cfg, 'oc_gw')[a.indexOf('--settings') + 1], p, '同一份配置同一个文件');
+  assert.equal(claudeArgsFor(cfg, 'oc_gw', gw)[a.indexOf('--settings') + 1], p, '同一份配置同一个文件');
 });
 
-test('判定走模板的网关', async () => {
+test('判定走 API 来源里的网关', async () => {
   const f = fake(async (o) => { emit(o, { kind: 'text', text: '答' }); return { text: '答', ok: true }; });
   let gw: any;
   f.deps.judge = async (_m, _p, _i, g) => { gw = g; return { decision: 'answer', reason: 'x' }; };
+  let model = '';
+  f.deps.judge = async (m, _p, _i, g) => { gw = g; model = m; return { decision: 'answer', reason: 'x' }; };
   const cfg = judgedCfg('oc_jgw');
-  cfg.stateDir = mkdtempSync(join(tmpdir(), 'lcr-jgw-'));   // 配了网关就会写 --settings 文件，别写进仓库
-  cfg.templates.t.gateway = { baseUrl: 'http://gw.local', token: 'tk' };
   await investigate(cfg, new Pool(3), tmpDb(), msg({ message_id: 'om_jgw', chat_id: 'oc_jgw' }), f.deps);
   assert.deepEqual(gw, { baseUrl: 'http://gw.local', token: 'tk' });
+  assert.equal(model, 'claude-haiku-4-5', '网关没给 haiku 那档起名就用原名');
+  cfg.apis[0].models = { haiku: 'claude-auto' };
+  await investigate(cfg, new Pool(3), tmpDb(), msg({ message_id: 'om_jgw2', chat_id: 'oc_jgw' }), f.deps);
+  assert.equal(model, 'claude-auto', '判定用 haiku 那档在这个网关上的名字');
+});
+
+test('判定没处可打（只有订阅、claude 自己也没配令牌）：不白打一次，直接按要回，理由里说清楚', async () => {
+  const f = fake(async (o) => { emit(o, { kind: 'text', text: '答' }); return { text: '答', ok: true }; });
+  const cfg = judgedCfg('oc_jsub');
+  cfg.apis = [{ name: 'sub', kind: 'subscription' }];
+  const env = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), 'lcr-nocc-'));   // 空的 claude 配置：settings.json 里没令牌
+  const saved = [process.env.ANTHROPIC_AUTH_TOKEN, process.env.ANTHROPIC_API_KEY];
+  delete process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const db = tmpDb();
+    await investigate(cfg, new Pool(3), db, msg({ message_id: 'om_jsub', chat_id: 'oc_jsub' }), f.deps);
+    assert.equal(f.judged(), 0);
+    assert.equal(f.calls.length, 1, '照常交给 CC');
+    assert.match(db.recent(1)[0].reason ?? '', /没有能判定的网关/);
+  } finally {
+    if (env === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = env;
+    if (saved[0] !== undefined) process.env.ANTHROPIC_AUTH_TOKEN = saved[0];
+    if (saved[1] !== undefined) process.env.ANTHROPIC_API_KEY = saved[1];
+  }
+});
+
+
+/* ---------- 多个 API 来源：按顺序用，出问题换下一个 ---------- */
+
+const modelOf = (o: RunOptions) => settingsOf(o).env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+/** 每个来源的 opus 档就叫它的名字 —— 从 --settings 里的映射看得出这次打的是哪个 */
+const apiCfg = (chat: string, names: string[]): Scope => {
+  const c = testCfg(chat);
+  c.stateDir = mkdtempSync(join(tmpdir(), 'lcr-api-'));
+  c.templates.t.model = 'opus';
+  c.apis = names.map((n) => ({ name: n, kind: 'gateway', baseUrl: `http://${n}`, token: 't', models: { opus: n } }));
+  return c;
+};
+
+test('API 来源：第一个额度用完（403 直接报错）换下一个原样重来；卡片上没有那句 API 报错，过程里说一声换了', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => {
+    if (modelOf(o) === 'q1') { emit(o, { kind: 'init', sessionId: 's1' }); return { text: 'API Error: 403 额度用完', ok: false, apiStatus: 403, sessionId: 's1' }; }
+    emit(o, { kind: 'init', sessionId: 's2' }, { kind: 'text', text: '结论' });
+    return { text: '结论', ok: true, sessionId: 's2' };
+  });
+  let card = '';
+  f.deps.updateCard = async (_id, c) => { card = JSON.stringify(c); };
+  await investigate(apiCfg('oc_q', ['q1', 'q2']), new Pool(3), db, msg({ message_id: 'om_q', chat_id: 'oc_q' }), f.deps);
+  assert.deepEqual(f.calls.map(modelOf), ['q1', 'q2']);
+  assert.equal(resumeOf(f.calls[1]), undefined, '第一个没动过手：原样重来，不接它那个空 session');
+  assert.equal(f.calls[1].prompt, f.calls[0].prompt);
+  assert.deepEqual([db.recent(1)[0].status, db.recent(1)[0].answer], ['done', '结论']);
+  assert.doesNotMatch(card, /API Error/);
+  assert.match(card, /q1.*换.*q2/);
+  assert.deepEqual([apiHealth('q1')?.ok, apiHealth('q1')?.note, !!apiHealth('q1')?.restingUntil], [false, '没权限或额度用完', true], '设置页看得到它出了什么事、在歇');
+  assert.equal(apiHealth('q2')?.ok, true);
+});
+
+test('API 来源：跑到一半开始限流（claude 在重试）就换下一个，接着刚才那个 session 做完；出过事的歇一会儿，下一条先用别的', async () => {
+  const f = fake(async (o) => {
+    if (modelOf(o) === 'r1') {
+      emit(o, { kind: 'init', sessionId: 's1' }, { kind: 'tool', id: 't', name: 'Bash' }, { kind: 'retry', status: 429, attempt: 1 });
+      assert.equal(o.signal!.aborted, false, '429 头一次先让 claude 自己重试');
+      emit(o, { kind: 'retry', status: 429, attempt: 2 });
+      assert.equal(o.signal!.aborted, true, '再来就不等了');
+      return { text: '', ok: false, sessionId: 's1' };
+    }
+    emit(o, { kind: 'init', sessionId: 's1' }, { kind: 'text', text: '结论' });
+    return { text: '结论', ok: true, sessionId: 's1' };
+  });
+  const cfg = apiCfg('oc_r', ['r1', 'r2']);
+  await investigate(cfg, new Pool(3), tmpDb(), msg({ message_id: 'om_r', chat_id: 'oc_r' }), f.deps);
+  assert.deepEqual(f.calls.map(modelOf), ['r1', 'r2']);
+  assert.equal(resumeOf(f.calls[1]), 's1', '动过手了：接着那个 session');
+  assert.match(f.calls[1].prompt, /接着/);
+
+  await investigate(cfg, new Pool(3), tmpDb(), msg({ message_id: 'om_r2', chat_id: 'oc_r' }), f.deps);
+  assert.equal(modelOf(f.calls[2]), 'r2', 'r1 刚出过事，排到后面');
+});
+
+test('API 来源：鉴权失败（401）头一次重试就换；最后一个来源不换，交给 claude 自己重试，报错照常收尾', async () => {
+  const db = tmpDb();
+  const f = fake(async (o) => {
+    emit(o, { kind: 'init', sessionId: 's' }, { kind: 'retry', status: 401, attempt: 1 });
+    if (modelOf(o) === 'a1') { assert.equal(o.signal!.aborted, true); return { text: '', ok: false }; }
+    emit(o, { kind: 'retry', status: 401, attempt: 2 });
+    assert.equal(o.signal!.aborted, false, '没得换了');
+    return { text: 'API Error: 401 令牌不对', ok: false, apiStatus: 401 };
+  });
+  await investigate(apiCfg('oc_a', ['a1', 'a2']), new Pool(3), db, msg({ message_id: 'om_a', chat_id: 'oc_a' }), f.deps);
+  assert.deepEqual(f.calls.map(modelOf), ['a1', 'a2']);
+  assert.equal(db.recent(1)[0].status, 'failed');
+});
+
+test('判定也按来源顺序：第一个网关挂了换下一个；订阅不能直接调 API，跳过', async () => {
+  const f = fake(async (o) => { emit(o, { kind: 'text', text: '答' }); return { text: '答', ok: true }; });
+  const seen: (string | undefined)[] = [];
+  f.deps.judge = async (_m, _p, _i, g) => {
+    seen.push(g?.baseUrl);
+    if (g?.baseUrl === 'http://j1') throw new Error('网关 502');
+    return { decision: 'answer', reason: 'x' };
+  };
+  const cfg = judgedCfg('oc_j2');
+  cfg.apis = [{ name: 'sub', kind: 'subscription' }, { name: 'j1', kind: 'gateway', baseUrl: 'http://j1', token: 't' }, { name: 'j2', kind: 'gateway', baseUrl: 'http://j2', token: 't' }];
+  await investigate(cfg, new Pool(3), tmpDb(), msg({ message_id: 'om_j2', chat_id: 'oc_j2' }), f.deps);
+  assert.deepEqual(seen, ['http://j1', 'http://j2']);
 });
 
 // 放最后：drain 之后 pipeline 就是停机状态了
@@ -511,15 +690,14 @@ test('不在话题里不读话题；读话题挂了照样回', async () => {
 test('@机器人：转给我的私聊说清楚是找的机器人', async () => {
   const f = fake(async () => { throw new Error('不该跑'); });
   f.judge({ decision: 'ask_me', reason: '问排期' });
-  const cfg = fullCfg('oc_x'); cfg.templates.t.judge = '判一下';
+  const cfg = withJudge(fullCfg('oc_x'));
   await onBotMessage(cfg, new Pool(3), tmpDb(), botEv({ message_id: 'om_ba', chat_type: 'p2p' }), BOT, f.deps);
   assert.match(f.dms[0], /张三 在私聊找机器人，它没回/);
 });
 
 test('再跑一次：回原消息再跑一遍、不再判定；还在跑的不让重跑', async () => {
   const db = tmpDb();
-  const fc = fullCfg('oc_r');
-  fc.templates.t = { ...fc.templates.t, judge: '判一下' };
+  const fc = withJudge(fullCfg('oc_r'));
   const m = msg({ message_id: 'om_r', chat_id: 'oc_r' });
   let release!: () => void;
   const f = fake(async (o, n) => {

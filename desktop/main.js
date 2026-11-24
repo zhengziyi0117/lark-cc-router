@@ -63,7 +63,7 @@ function fixEnv() {
   if (process.platform !== 'win32') dirs.push('/opt/homebrew/bin', '/usr/local/bin');
   process.env.PATH = [...new Set(dirs.filter(Boolean))].join(delimiter);
 
-  for (const k of ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy']) {
+  for (const k of ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy', 'LCR_CODEX', 'CODEX_HOME', 'LCR_CODEX_ENDPOINT']) {
     if (sh[k] && !process.env[k]) process.env[k] = sh[k];
   }
   // 本机页面不能走代理：不然主进程自己 fetch 127.0.0.1 也会被转去代理
@@ -157,7 +157,15 @@ async function main() {
 /* ---------- 窗口 ---------- */
 
 async function createWindow(visible = true) {
-  win = new BrowserWindow({ width: 1200, height: 820, title: 'lark-cc-router', show: visible, icon: ICON });
+  win = new BrowserWindow({
+    width: 1200, height: 820, title: 'lark-cc-router', show: visible, icon: ICON,
+    // mac 不要系统标题栏那条「大额头」：红绿灯嵌进页面自己的顶栏（52px 高，竖着居中），顶栏兼做拖动条
+    ...(process.platform === 'darwin' && { titleBarStyle: 'hidden', trafficLightPosition: { x: 18, y: 20 } }),
+  });
+  if (process.platform === 'darwin') {
+    win.webContents.on('did-finish-load', () => win.webContents.insertCSS(
+      '.topbar{-webkit-app-region:drag;padding-left:90px!important}.topbar :is(button,a,input,select){-webkit-app-region:no-drag}'));
+  }
   // 页面里的外链（飞书消息、文档、GitLab）交给系统浏览器；只放 http(s)，别让页面里的内容拉起 file:// 之类
   const external = (url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); };
   win.webContents.setWindowOpenHandler(({ url }) => { external(url); return { action: 'deny' }; });

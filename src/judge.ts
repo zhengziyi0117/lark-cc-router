@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { claudeDir } from './bins.ts';
 import { resolve } from 'node:path';
+import { JUDGE_MODEL, tierEnv, type Api } from './config.ts';
 
 /**
  * 「这条 @我 要不要回」的判定 —— 在全权限 CC 起来**之前**，直接调一次模型 API。
@@ -88,18 +89,37 @@ export function parseVerdict(text: string): Verdict | undefined {
   return { decision: d, reason: reason.replace(/\\"/g, '"').trim().slice(0, 200) };
 }
 
+/** claude 自己那套配置里的环境变量：进程的优先，其次 ~/.claude/settings.json 的 env */
+function claudeVar(): (k: string) => string {
+  let env: Record<string, string> = {};
+  try { env = JSON.parse(readFileSync(resolve(claudeDir(), 'settings.json'), 'utf8')).env ?? {}; } catch { /* 没有就只看环境变量 */ }
+  return (k) => process.env[k] || env[k] || '';
+}
+
+/**
+ * 判定打哪、用哪个模型，按顺序试。订阅不能直接调 API（令牌只认 Claude Code），只走网关；模型是 haiku 那档在这个网关上的名字。
+ * 一个网关都没有就跟 claude 自己的配置走（见 credentials）；那边也没令牌 = 判不了，返回空 —— 别每条都白打一次 401
+ */
+export function judgeTargets(apis: Api[]): { api?: Api; model: string }[] {
+  const gws = apis.filter((a) => a.kind === 'gateway');
+  if (gws.length) return gws.map((api) => ({ api, model: api.models?.haiku || JUDGE_MODEL }));
+  const get = claudeVar();
+  if (!get('ANTHROPIC_AUTH_TOKEN') && !get('ANTHROPIC_API_KEY')) return [];
+  return [{ model: get(tierEnv('haiku')) || JUDGE_MODEL }];
+}
+
 /**
  * 打到哪、带什么凭证。选了网关就用它；没选跟 claude 用同一套：环境变量优先，其次 ~/.claude/settings.json 的 env。
  */
 export function credentials(gw?: { baseUrl: string; token?: string }): { base: string; headers: Record<string, string> } {
   const headers: Record<string, string> = { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' };
   if (gw) {
-    if (gw.token) headers.authorization = `Bearer ${gw.token}`;
+    // Anthropic 官方的 key 走 x-api-key，当 Bearer 发会 401（跟 config.ts 的 apiEnv 一个规矩）
+    if (gw.token && /^sk-ant-api/.test(gw.token)) headers['x-api-key'] = gw.token;
+    else if (gw.token) headers.authorization = `Bearer ${gw.token}`;
     return { base: gw.baseUrl.replace(/\/$/, ''), headers };
   }
-  let env: Record<string, string> = {};
-  try { env = JSON.parse(readFileSync(resolve(claudeDir(), 'settings.json'), 'utf8')).env ?? {}; } catch { /* 没有就只看环境变量 */ }
-  const get = (k: string) => process.env[k] || env[k] || '';
+  const get = claudeVar();
   const base = (get('ANTHROPIC_BASE_URL') || 'https://api.anthropic.com').replace(/\/$/, '');
   const token = get('ANTHROPIC_AUTH_TOKEN');
   const key = get('ANTHROPIC_API_KEY');

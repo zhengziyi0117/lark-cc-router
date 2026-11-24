@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowed, publicTemplate } from './web.ts';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { allowed, apisFrom, explainTemplate } from './web.ts';
+import { publicApi, type Config } from './config.ts';
 
 const H = 'http://127.0.0.1:8787';
 const host = { host: '127.0.0.1:8787' };
@@ -20,9 +24,37 @@ test('别的网页打过来一律拒 —— 不然随便一个页面就能跑 CC
   assert.equal(allowed('GET', { ...host, origin: 'http://localhost:8787' }), false, '跟 Host 不同源');
 });
 
-test('模板下发到页面时网关不带 token，只说有没有', () => {
-  const p = publicTemplate({ project: '~/p', gateway: { baseUrl: 'http://a', token: 'secret' } });
-  assert.deepEqual(p, { project: '~/p', gateway: { baseUrl: 'http://a', hasToken: true } });
+test('API 来源下发到页面时不带令牌，只说有没有', () => {
+  const p = publicApi({ name: 'gw', kind: 'gateway', baseUrl: 'http://a', token: 'secret', models: { opus: 'm' } });
+  assert.deepEqual(p, { name: 'gw', kind: 'gateway', baseUrl: 'http://a', models: { opus: 'm' }, hasToken: true });
   assert.ok(!JSON.stringify(p).includes('secret'));
-  assert.deepEqual(publicTemplate({ project: '~/p' }), { project: '~/p' }, '没网关就别凭空多一个键');
+});
+
+test('实际生效：档位在每个来源上叫什么、高级参数跟正式字段打架、判定打不到，都摆出来', () => {
+  process.env.CLAUDE_CONFIG_DIR = mkdtempSync(join(tmpdir(), 'lcr-cc-'));   // 空的 claude 配置，不读本机的
+  delete process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.ANTHROPIC_API_KEY;
+  const cfg = { templates: {}, user: { on: true, chats: {}, defaultTemplate: 'x' }, bot: { on: false, chats: {}, defaultTemplate: 'x' },
+    apis: [{ name: '网关', kind: 'gateway', baseUrl: 'http://gw', token: 't', models: { opus: 'claude-auto' } }, { name: '订阅', kind: 'subscription' }] } as unknown as Config;
+  const v = (lines: ReturnType<typeof explainTemplate>, k: string) => lines.filter((l) => l.k === k);
+
+  const a = explainTemplate(cfg, { project: tmpdir(), model: 'opus', judge: '判', claudeArgs: ['--model', 'haiku', '--dangerously-skip-permissions'],
+    claudeSettings: { env: { ANTHROPIC_BASE_URL: 'x' } } });
+  assert.equal(v(a, '模型')[0].v, 'opus 档：「网关」上叫 claude-auto，「订阅」上用 Claude Code 自己的名字');
+  assert.equal(v(a, '冲突').length, 3, '--model 被盖、--dangerously-skip-permissions 全放开、settings 的地址被来源盖');
+  assert.match(v(a, '判定')[0].v, /「网关」上的 claude-haiku-4-5/);
+  assert.match(v(a, '命令行')[0].v, /--model opus --permission-mode auto$/);
+
+  const b = explainTemplate({ ...cfg, apis: [cfg.apis[1]] }, { project: tmpdir(), judge: '判' });
+  assert.equal(v(b, '判定')[0].bad, true, '只有订阅：判定打不到');
+  assert.equal(v(explainTemplate(cfg, {}), '项目')[0].bad, true, '没选项目');
+  assert.match(v(explainTemplate(cfg, { agent: 'codex', project: tmpdir() }), '执行器')[0].v, /不走「API 来源」/);
+});
+
+test('设置里存 API 来源：改名按 from 认（令牌找回来、模板跟着改），坏的整份不收；没传就不动', () => {
+  const cur = { apis: [{ name: '旧', kind: 'gateway', baseUrl: 'http://a', token: 'secret' }] } as unknown as Config;
+  const a = apisFrom({ apis: [{ name: '新', from: '旧', kind: 'gateway', baseUrl: 'http://a', models: { haiku: 'fast' } }] }, cur)!;
+  assert.deepEqual(a.apis, [{ name: '新', kind: 'gateway', baseUrl: 'http://a', token: 'secret', models: { haiku: 'fast' } }]);
+  assert.deepEqual([...a.renamed], [['旧', '新']]);
+  assert.equal(apisFrom({ apis: [{ name: 'x', kind: 'gateway', baseUrl: 'ftp://x' }] }, cur)!.errors.length, 1);
+  assert.equal(apisFrom({}, cur), undefined);
 });

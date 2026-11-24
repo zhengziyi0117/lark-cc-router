@@ -5,18 +5,19 @@ import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { promisify, stripVTControlCharacters } from 'node:util';
-import type { Config } from '../config.ts';
+import { routingTemplates, type Config } from '../config.ts';
 import { bin, BIN_DIR, WIN, type Tool } from '../bins.ts';
 import { progress, type Check, type Handler, type Section } from './types.ts';
 
 /**
- * 「环境」一段：lark-cli、claude、git 在不在、什么版本，缺的一键装。
+ * 向导的「工具」一段：lark-cli、claude、git 在不在、什么版本，缺的一键装。
  * 装的东西都进 BIN_DIR（claude 除外：官方安装器固定装 ~/.local/bin），bin() 下次就找得到，不用改 PATH。
  * 下载是信任边界：每个文件都对上官方给的 sha256 / sha512 才用，对不上直接丢。
  */
 
 const exec = promisify(execFile);
-const TOOLS: Tool[] = ['lark-cli', 'claude', 'git'];
+type Installable = Exclude<Tool, 'codex'>;
+const TOOLS: Installable[] = ['lark-cli', 'claude', 'git'];
 const MAC = process.platform === 'darwin';
 // Windows 上 PATH 里可能先有 Git 自带的 GNU tar：解不了 zip，还把 C: 当成远程主机。用系统自带的 bsdtar
 const TAR = WIN ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
@@ -34,13 +35,15 @@ const installing = new Set<Tool>();
 const HINT: Record<Tool, string> = {
   'lark-cli': '飞书命令行：读消息、回卡片都靠它',
   claude: 'Claude Code：真正干活排查的',
+  codex: '连接本机 Codex 控制套接字需要 Codex CLI。可用 LCR_CODEX 指定可执行文件。',
   git: MAC ? '在 Xcode 命令行工具里，装的时候会弹系统对话框' : '拉代码用，claude 跑命令也要它的 Git Bash',
 };
 
 async function detect(t: Tool): Promise<Check> {
   const base = { id: t, label: t };
   if (installing.has(t)) return { ...base, state: 'running', detail: '安装中…' };
-  const missing: Check = { ...base, state: 'missing', detail: HINT[t], action: { label: '安装', route: '/api/setup/tools/install', body: { tool: t } } };
+  const missing: Check = { ...base, state: 'missing', detail: HINT[t],
+    ...(t === 'codex' ? {} : { action: { label: '安装', route: '/api/setup/tools/install', body: { tool: t } } }) };
   const path = bin(t);
   try {
     // mac 没装命令行工具时 /usr/bin/git 是个桩，一跑就弹安装框 —— 检测不能弹框，先问 xcode-select。
@@ -70,9 +73,12 @@ function gitBashEnv(): void {
 // 模块一加载就设一次：重启后不开向导直接进主页，也得有
 gitBashEnv();
 
-export async function sections(_cfg: Config): Promise<Section[]> {
+export async function sections(cfg: Config): Promise<Section[]> {
   gitBashEnv();
-  return [{ id: 'tools', title: '工具', checks: await Promise.all(TOOLS.map(detect)) }];
+  const agents = new Set(routingTemplates(cfg).map((t) => t.agent === 'codex' ? 'codex' : 'claude'));
+  if (/^wss?:\/\//.test(process.env.LCR_CODEX_ENDPOINT || '')) agents.delete('codex');
+  const required: Tool[] = ['lark-cli', ...agents, 'git'];
+  return [{ id: 'tools', title: '工具', checks: await Promise.all(required.map(detect)) }];
 }
 
 /* ------------------------------ 下载与校验 ------------------------------ */
@@ -275,7 +281,7 @@ async function installGit(): Promise<string> {
 
 /* ------------------------------ 路由 ------------------------------ */
 
-const INSTALL: Record<Tool, () => Promise<string>> = { 'lark-cli': installLarkCli, claude: installClaude, git: installGit };
+const INSTALL: Record<Installable, () => Promise<string>> = { 'lark-cli': installLarkCli, claude: installClaude, git: installGit };
 
 export const routes: Record<string, Handler> = {
   /** 立刻返回，过程走 SSE。同一个工具正在装就不再起第二份 */
@@ -285,7 +291,7 @@ export const routes: Record<string, Handler> = {
     installing.add(tool);
     // 先摘掉「安装中」再推 done：页面收到 done 就刷新状态，晚一步摘会看到它还在装
     const end = (ok: boolean, msg: string) => { installing.delete(tool); progress('tools', msg, { ok }); };
-    INSTALL[tool as Tool]().then((m) => end(true, m), (e) => end(false, `${tool} 安装失败：${e.message}`));
+    INSTALL[tool as Installable]().then((m) => end(true, m), (e) => end(false, `${tool} 安装失败：${e.message}`));
     return { started: true };
   },
 };

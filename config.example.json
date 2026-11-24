@@ -3,10 +3,13 @@
   "pollMs": 60000,
   "maxJobs": 3,
   "stateDir": "state",
-  "judgeModel": "claude-haiku-4-5",
 
   "templates": {
     "通用": {
+      "project": "~/code/your-project"
+    },
+    "Codex 排障": {
+      "agent": "codex",
       "project": "~/code/your-project"
     },
     "只读排障": {

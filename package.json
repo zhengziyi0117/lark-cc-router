@@ -1,6 +1,6 @@
 {
   "name": "lark-cc-router",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "private": true,
   "type": "module",
   "description": "飞书群里有人 @我 → Claude Code 全权限排查 → 以我本人身份在话题里流式回一张卡片",
@@ -21,7 +21,8 @@
     "release:github": "git branch -f release $(GIT_AUTHOR_NAME=zhengziyi0117 GIT_AUTHOR_EMAIL=91662408+zhengziyi0117@users.noreply.github.com GIT_COMMITTER_NAME=zhengziyi0117 GIT_COMMITTER_EMAIL=91662408+zhengziyi0117@users.noreply.github.com git commit-tree HEAD^{tree} -p release -m $(git describe --tags --abbrev=0)) && git push github release"
   },
   "dependencies": {
-    "marked": "^18.1.1"
+    "marked": "^18.1.1",
+    "ws": "^8.23.0"
   },
   "devDependencies": {
     "electron": "45.4.1",
@@ -36,6 +37,7 @@
       "desktop/**",
       "!desktop/**/*.test.js",
       "node_modules/marked/**",
+      "node_modules/ws/**",
       "package.json"
     ],
     "mac": {

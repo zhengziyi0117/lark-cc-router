@@ -35,14 +35,30 @@ test('状态决定头部颜色，群里扫一眼就知道结果', () => {
   assert.equal(titleFor('failed').template, 'orange');
 });
 
-test('排查过程收进折叠面板，跑的时候展开、收尾收起', () => {
-  const running = JSON.stringify(buildCard(state({ process: "<text_tag color='neutral'>Bash</text_tag> `ls`", tools: 3 })));
-  assert.ok(running.includes('collapsible_panel'));
-  assert.ok(running.includes('3 次工具调用'));
-  assert.ok(running.includes('"expanded":true'), '跑的时候要展开，群里才看得到进度');
+test('卡片默认收起：露出结论第一段，全文和过程都收进折叠面板 —— 群里扫一眼看结论，想看细节自己点开', () => {
+  const text = '## 结论\n\n商户回调超时，状态没推进。\n\n细节一\n\n细节二';
+  const els = (buildCard(state({ status: 'done', text, process: "<text_tag color='neutral'>Bash</text_tag> `ls`", tools: 3 })) as any).body.elements;
+  assert.deepEqual(els.map((e: any) => e.tag), ['markdown', 'markdown', 'collapsible_panel', 'collapsible_panel']);
+  assert.equal(els[1].content, '## 结论\n\n商户回调超时，状态没推进。', '开头是标题的话带上它下面那段');
+  const [full, proc] = [els[2], els[3]];
+  assert.equal(full.expanded, false);
+  assert.match(full.header.title.content, /完整结论/);
+  assert.equal(full.elements[0].content, text, '面板里是全文');
+  assert.equal(proc.expanded, false);
+  assert.match(proc.header.title.content, /3 次工具调用/);
 
-  const done = JSON.stringify(buildCard(state({ process: "<text_tag color='neutral'>Bash</text_tag> `ls`", tools: 3, status: 'done', text: '结论' })));
-  assert.ok(done.includes('"expanded":false'), '收尾要收起，只留结论');
+  const short = (buildCard(state({ status: 'done', text: '是 Y 导致的' })) as any).body.elements;
+  assert.deepEqual(short.map((e: any) => e.tag), ['markdown', 'markdown'], '一段话就说完的：原样露出来，不套面板');
+
+  const l = (buildCard(state({ status: 'done', text: '很长'.repeat(400) + '\n\n第二段' })) as any).body.elements;
+  assert.ok(l[1].content.length < 400 && l[1].content.endsWith('…'), '第一段太长：露出来的掐短，全文在面板里');
+
+  const code = (buildCard(state({ status: 'done', text: '```\nstack\n```\n\n第二段' })) as any).body.elements;
+  assert.ok(!code.some((e: any) => e.tag === 'markdown' && e.content.includes('```')), '露出来的不能是半截代码块：一上来就是代码的，只剩折起来的全文');
+  assert.equal(code.at(-1).tag, 'collapsible_panel');
+
+  const running = (buildCard(state({ process: 'p', tools: 1 })) as any).body.elements;
+  assert.equal(running.find((e: any) => e.tag === 'collapsible_panel').expanded, false, '跑的时候过程也收着');
 });
 
 test('没有过程就不放折叠面板（避免空壳）', () => {
@@ -102,6 +118,16 @@ test('事件流分两块：正文 / 排查过程，互不串味', () => {
 
   const card = JSON.stringify(buildCard(state({ text: b.text, process: b.process, tools: b.tools })));
   assert.ok(card.includes('initSchedule'));
+});
+
+test('流式正文的快照原地更新，收尾时每句话只留一份', () => {
+  const b = new CardBuilder();
+  b.push({ kind: 'text', itemId: 'a', text: '先看' });
+  b.push({ kind: 'text', itemId: 'b', text: '结', partial: true });
+  b.push({ kind: 'text', itemId: 'b', text: '结论', partial: true });
+  assert.equal(b.text, '先看\n\n结论');
+  b.push({ kind: 'text', itemId: 'b', text: '结论如下' });
+  assert.equal(b.text.trim(), '先看\n\n结论如下');
 });
 
 test('思考和工具调用在**同一条时间线**上，顺序不能丢', () => {
@@ -356,7 +382,7 @@ test('并发上限热更新：调大马上放排队的进来，调小不掐在�
 
 /* ---------- 流式卡片（机器人） ---------- */
 
-test('按时间顺序（机器人）：过场话挪进过程、排在它引出的工具前面，正文只留最后一段；过程在上结论在下', () => {
+test('按时间顺序（机器人）：过场话挪进过程、排在它引出的工具前面，正文只留最后一段；结论紧跟问题，过程收在下面', () => {
   const b = new CardBuilder();
   b.chrono = true;
   b.push({ kind: 'text', text: '我先看下日志' });
@@ -368,10 +394,8 @@ test('按时间顺序（机器人）：过场话挪进过程、排在它引出�
   assert.ok(b.process.indexOf('我先看下日志') < b.process.indexOf('Bash'), '过场话在工具前面');
 
   const els = (buildCard({ who: '张三', q: '问', status: 'done', text: b.text, process: b.process, tools: 1, chrono: true }) as any).body.elements;
-  assert.deepEqual(els.map((e: any) => e.tag), ['markdown', 'collapsible_panel', 'markdown']);
-  assert.match(els[2].content, /结论/);
-  const old = (buildCard({ who: '张三', q: '问', status: 'done', text: '结论', process: 'p', tools: 1 }) as any).body.elements;
-  assert.equal(old[2].tag, 'collapsible_panel', '@我 的卡片不变：正文在上');
+  assert.deepEqual(els.map((e: any) => e.tag), ['markdown', 'markdown', 'collapsible_panel']);
+  assert.match(els[1].content, /结论/);
 });
 
 test('机器人的卡片：思考只留开头、不放工具输出；超了丢最老的步骤，跑完也留着最后几步和结论', () => {
@@ -428,7 +452,11 @@ test('流式卡片：建实体按 card_id 发；骨架不变只打字（正文�
   s.push({ kind: 'text', text: '第二段' });
   await settle();
   const texts = k.ops.filter((o) => o[0] === 'text');
-  assert.deepEqual(texts.map((o) => [o[1], o[2]]), [['body', '第一段'], ['body', '第一段\n\n第二段']], '旧文本是新文本的前缀 —— 打字机接着打');
+  assert.deepEqual(texts.map((o) => [o[1], o[2]]), [['body', '第一段']]);
+  assert.equal(k.ops.at(-1)[0], 'update', '第二段来了 = 多出「完整结论」面板，骨架变了，整卡替换');
+  s.push({ kind: 'text', text: '第2.5段' });
+  await settle();
+  assert.deepEqual(k.ops.at(-1).slice(0, 3), ['text', 'body', '第一段\n\n第二段\n\n第2.5段'], '之后骨架不变：全文接着往后打，露出来那段不动');
 
   k.closeOnce();
   s.push({ kind: 'text', text: '第三段' });

@@ -296,7 +296,7 @@ pre{margin:6px 0 0;padding:9px 11px;background:var(--sunk);border:1px solid var(
 
 /* 弹窗（试跑） */
 .scrim{position:fixed;inset:0;background:rgba(31,30,28,.4);z-index:40}
-.fld{display:grid;grid-template-columns:8.5rem 1fr;gap:12px;align-items:center;margin:8px 0}
+.fld{display:grid;grid-template-columns:8.5rem minmax(0,1fr);gap:12px;align-items:center;margin:8px 0}
 .fld>span{color:var(--ink-2);font-size:13px}
 .fld select{max-width:20rem}
 .modal{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-start;justify-content:center;
@@ -332,7 +332,7 @@ pre{margin:6px 0 0;padding:9px 11px;background:var(--sunk);border:1px solid var(
 .navi .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .navi .nm.dirty::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--run);
   margin-left:7px;vertical-align:middle}
-.navi small{color:var(--ink-3);font-size:11px;font-weight:400;flex:none}
+.navi small{color:var(--ink-3);font-size:11px;font-weight:400;max-width:50%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .navadd{border:none;background:none;color:var(--ink-3);text-align:left;padding:7px 10px;font-size:13px;margin-top:4px}
 .navadd:hover{color:var(--accent);background:none}
 .setpane{display:flex;flex-direction:column;min-width:0;min-height:0}
@@ -346,29 +346,59 @@ pre{margin:6px 0 0;padding:9px 11px;background:var(--sunk);border:1px solid var(
 .badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--accent-w);color:var(--accent);flex:none}
 .pmeta{color:var(--ink-3);font-size:12.5px;white-space:nowrap}
 .setbody{flex:1;overflow:auto;padding-top:0;padding-bottom:40px;min-height:0}
-.setbody.is-frame{padding:0;overflow:hidden}
-.envframe{display:block;width:100%;height:100%;border:0}
+.setbody.is-frame{padding:0;overflow:hidden;display:flex;flex-direction:column}
+.envframe{display:block;width:100%;flex:1;min-height:0;border:0}
+/* 每页顶上：这一页还没弄好的向导检查项（上手向导的同一份状态），带按钮直接修 */
+.strip{max-width:46rem;margin-top:14px;padding:10px 14px;border-radius:var(--rs);background:var(--sunk)}
+.is-frame>.strip{margin:14px 40px 0}
+.strow{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13px}
+.strow+.strow{border-top:1px solid var(--line)}
+.strow .stdt{flex:1;min-width:0;color:var(--ink-2)}
+.navi .navbad{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bad)}
+.navi.dim .nm{color:var(--ink-3)}
+/* 设置 → Claude Code 的 API 来源：一个来源一张卡 */
+.apirow{border:1px solid var(--line);border-radius:var(--rs);padding:12px 14px;margin-top:10px}
+.apirow .apih{display:flex;align-items:center;gap:8px}
+.apirow .apih input{flex:1;min-width:0;font-weight:600}
+.apirow .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 12px;margin-top:12px}
+.apirow>.fi{margin-top:12px}
+.apirow .grid3>.fi{margin-top:0}
+@media (max-width:720px){.apirow .grid3{grid-template-columns:1fr}}
 .blk{padding:22px 0;border-bottom:1px solid var(--line);max-width:46rem}
 .blk:last-of-type{border-bottom:none}
 .blk.blk-danger{margin-top:28px;padding:18px 20px;border:1px solid var(--line);border-radius:var(--r)}
 .blk-danger:not(.is-off) .blkh h3{color:var(--bad)}
 button.danger{color:var(--bad)}
-/* 项目：输入框 + 下拉菜单（工作区 / 选择文件夹…），手填也行 */
-.pick{position:relative;display:flex;gap:6px;min-width:0}
-.pick>input{flex:1}
-.pick>button{flex:none;padding:0 10px}
-.pick-menu{position:absolute;z-index:30;top:calc(100% + 4px);left:0;right:0;max-height:320px;overflow:auto;padding:6px;
+/* 项目：一张卡片（文件夹名 + 路径），点开是菜单：在 Finder 里选… / 用过的（能 ×）/ 粘贴路径 */
+.pick{position:relative;min-width:0}
+.pick-card{display:flex;align-items:center;gap:10px;width:100%;height:auto;min-height:44px;padding:6px 12px;text-align:left;
+  background:var(--surface);border:1px solid var(--rule);border-radius:var(--r)}
+.pick-card:hover{border-color:var(--ink-3)}
+.pick-card[aria-expanded=true]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-w)}
+.pick-card.is-empty{border-style:dashed}
+.pick-ic{flex:none;display:flex;color:var(--ink-3)}
+.pick-card:not(.is-empty) .pick-ic{color:var(--accent)}
+.pick-txt{flex:1;display:flex;flex-direction:column;min-width:0;line-height:1.35}
+.pick-txt b{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-txt small,.pick-it small{font:11.5px var(--mono);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pick-empty{color:var(--ink-3)}
+.pick-chg{flex:none;font-size:12.5px;color:var(--accent)}
+.pick-menu{position:absolute;z-index:30;top:calc(100% + 4px);left:0;right:0;max-height:340px;overflow:auto;padding:6px;
   background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);box-shadow:0 8px 28px rgba(31,30,28,.14)}
-.pick-h{font-size:11.5px;font-weight:600;color:var(--ink-3);padding:8px 10px 4px}
-.pick-it{display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;border:none;background:none;padding:7px 10px;border-radius:var(--rs);min-width:0}
-.pick-it:hover,.pick-it.is-hl{background:var(--sunk);border:none}
+.pick-h{font-size:11.5px;font-weight:600;color:var(--ink-3);padding:10px 10px 4px}
+.pick-row{display:flex;align-items:center;border-radius:var(--rs)}
+.pick-row:hover,.pick-row:focus-within{background:var(--sunk)}
+.pick-it{display:flex;align-items:baseline;gap:10px;flex:1;width:100%;height:auto;text-align:left;border:none;background:none;padding:7px 10px;border-radius:var(--rs);min-width:0}
+.pick-it:hover,.pick-it:focus-visible{background:var(--sunk);border:none;box-shadow:none}
+.pick-row .pick-it:hover,.pick-row .pick-it:focus-visible{background:none}
 .pick-it b{font-weight:600;flex:none}
-.pick-it small{font:11.5px var(--mono);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.pick-it span{font:12.5px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.pick-it.is-cur b::after,.pick-it.is-cur span::after{content:" ✓";color:var(--accent)}
-.pick-act{border-top:1px solid var(--line);margin-top:4px;padding-top:4px;position:sticky;bottom:-6px;background:var(--surface);padding-bottom:2px}
-.pick-act .pick-it{color:var(--accent)}
-.pick-none{padding:8px 10px;font-size:12.5px;color:var(--ink-3)}
+.pick-it.is-cur b::after{content:" ✓";color:var(--accent)}
+.pick-finder{align-items:center;color:var(--accent);font-weight:600}
+.pick-finder .pick-ic{color:var(--accent)}
+.pick-x{flex:none;width:26px;height:26px;padding:0;margin-right:4px;border:none;background:none;color:var(--ink-3);font-size:16px;line-height:1;opacity:.45}
+.pick-row:hover .pick-x,.pick-x:focus-visible{opacity:1}
+.pick-x:hover{color:var(--bad);background:var(--surface)}
+.pick-path{display:block;width:100%;margin-top:6px;font:12px var(--mono)}
 .hint a{color:var(--accent)}
 .blkh{display:flex;align-items:center;gap:10px;min-height:22px}
 .blkh h3{margin:0;font:600 15px/1.4 var(--sans)}
@@ -413,6 +443,10 @@ textarea.prose{font-family:var(--sans);font-size:13px;line-height:1.7;padding:9p
 .kv{display:grid;grid-template-columns:5rem 1fr;gap:8px 12px;margin:0;font-size:13px}
 .kv dt{color:var(--ink-3)}
 .kv dd{margin:0;font-family:var(--mono);font-size:12.5px;word-break:break-all}
+/* 模板顶上「实际会怎么跑」：大多是话，命令行那行才用等宽；打架 / 跑不了的标红 */
+.kv.eff dd{font-family:var(--sans);font-size:13px;word-break:normal}
+.kv.eff dd.code{font-family:var(--mono);font-size:12px;word-break:break-all}
+.kv.eff dd.bad,.kv.eff dt.bad{color:var(--bad)}
 button.link{border:none;background:none;padding:0;color:var(--accent);font-size:12.5px}
 button.link:hover{text-decoration:underline;background:none}
 .inrow{display:flex;gap:8px;align-items:center}
@@ -544,7 +578,8 @@ button.link:hover{text-decoration:underline;background:none}
     <div class="sbody">
       <p class="note" style="margin:0">按这个会话的配置真跑一次 Claude Code，进度进中间那栏。卡片以你的身份<b>发给你自己</b>（不进群），顺带验一下飞书这条路通不通；不占去重记录。</p>
       <label class="fld"><span>当成哪个会话</span><select id="r-chat"></select></label>
-      <label class="fld"><span>项目</span><input id="r-proj" list="projlist"></label>
+      <label class="fld"><span>用哪个模板</span><select id="r-tpl"></select></label>
+      <div class="fld"><span>项目</span><div id="r-projbox"></div></div>
       <div id="r-resumebox" class="note" hidden></div>
       <textarea id="r-q" rows="4" placeholder="这个订单为什么改不了"></textarea>
       <div class="echo" id="r-echo"></div>
@@ -552,8 +587,6 @@ button.link:hover{text-decoration:underline;background:none}
     <footer class="sfoot"><button class="primary" id="run-go">跑一次</button><button id="run-judge">只看判定</button><span class="note" id="run-stat" style="margin:0"></span></footer>
   </div>
 </div>
-
-<datalist id="projlist"></datalist>
 
 <script src="/vendor/marked.js"></script>
 <script>
@@ -708,10 +741,9 @@ function renderMid() {
   if (isAll) sub.appendChild(el('span', null, MODES.filter(([k]) => cfg?.[k].on).map(([k, n]) => `${n}：${scopeText(cfg[k])}`).join('　') || '两个入口都关着'));
   else {
     sub.appendChild(el('span', null, [c.mode === 'p2p' ? '私聊' : '群', r?.project && `在 ${projName(r.project)} 里查`].filter(Boolean).join(' · ')));
-    if (r?.gateway && !r.gateway.hasToken) sub.append(el('span', 'hinfo-bad', '· 网关没 token'));   // 一跑就 401，不能藏
     const [btn, dl] = infoToggle('g', [
       ['会话 ID', c.chatId], ['项目', r?.project], ['模型', r && (r.model || '默认')],
-      ['权限', r && permLabel(r.permissionMode)], ['回复', r && (r.judge ? '先判定要不要回' : '直接回')], ['网关', r && gwText(r)],
+      ['权限', r && permLabel(r)], ['回复', r && (r.judge ? '先判定要不要回' : '直接回')], ['API', r && apiText(r)],
     ]);
     sub.appendChild(btn); info = dl;
   }
@@ -782,8 +814,8 @@ function renderMid() {
 
 const tag = (text, cls) => el('span', 'tag' + (cls ? ' ' + cls : ''), text);
 
-/** 这个模板的 CC / 判定打到哪。没配 token 的网关一跑就 401 */
-const gwText = (r) => r.gateway ? r.gateway.baseUrl + (r.gateway.hasToken ? '' : '（没配 token，一跑就 401）') : (cfg?.defaultBaseUrl || '默认（跟 claude 自己的配置走）');
+/** 这个会话的 CC 打哪些 API 来源（按顺序，出问题换下一个）。一个都没配就跟 claude 自己的配置走 */
+const apiText = (r) => r.agent === 'codex' ? '本机 Codex App Server' : r.apis?.length ? r.apis.join(' → ') : (cfg?.ownClaude || '跟 claude 自己的配置走');
 
 /** 头部的「详情」按钮 + 它展开的 kv 表（空值的行不出）。开合状态存在 infoOpen 里，SSE 推一次重画一次也不会自己合上 */
 const infoOpen = { g: false, d: false };
@@ -840,7 +872,7 @@ function renderDetail() {
   const jm = cfg?.[isBot ? 'bot' : 'user'];
   const rr = j.chatId && jm && (jm.resolved?.[j.chatId] || jm.fallback);
   const [btn, dl] = infoToggle('d', [
-    ['模板', rr?.template], ['项目', j.project], ['权限', rr && permLabel(rr.permissionMode)], ['网关', rr && gwText(rr)],
+    ['模板', rr?.template], ['项目', j.project], ['权限', rr && permLabel(rr)], ['API', rr && apiText(rr)],
   ]);
   h.appendChild(meta);
   if (dl.childNodes.length) { meta.appendChild(btn); h.appendChild(dl); }
@@ -985,7 +1017,7 @@ function evNode(ev, t0, open) {
   if (ev.t) n.appendChild(el('span', 'at', dur(ev.t - t0)));
 
   if (ev.kind === 'init') {
-    n.appendChild(el('div', 'evhead', 'session ' + String(ev.sessionId || '').slice(0, 8) + (ev.model ? ' · ' + ev.model : '')));
+    n.appendChild(el('div', 'evhead', 'session ' + String(ev.sessionId || '').replace(/^codex:/, '').slice(0, 8) + (ev.model ? ' · ' + ev.model : '')));
     if (ev.cwd) n.appendChild(el('div', 'evsub', ev.cwd));
     // 授权过期 / 没连上的 MCP：claude 不报错照常跑，只是少了那批工具 —— 在这儿说出来
     // pending = init 那一刻还在连，不算坏
@@ -994,6 +1026,7 @@ function evNode(ev, t0, open) {
     if (bad.length) { const w = el('div', 'evsub', '⚠️ MCP 没连上：' + bad.map((s) => s.name + '（' + s.status + '）').join('、')); w.style.color = 'var(--bad)'; n.appendChild(w); }
     if (ev.mcp) n.appendChild(el('div', 'evsub', `MCP ${ev.mcp.length - bad.length - pend}/${ev.mcp.length} 已连${pend ? ` · ${pend} 个连接中` : ''} · plugin ${(ev.plugins || []).length} 个`));
   } else if (ev.kind === 'text') {
+    if (ev.itemId) n.dataset.itemId = ev.itemId;
     n.appendChild(mdNode(ev.text));
   } else if (ev.kind === 'thinking') {
     const d = el('div', 'think');
@@ -1048,10 +1081,11 @@ function summaryOf(j, flow) {
   // 重启后的历史作业没有事件了，session 走库里落的那份
   const session = j.events.find((e) => e.kind === 'init')?.sessionId || j.session;
   if (session) {
-    const c = el('code', null, session);
-    c.title = '点一下复制 —— 可以 claude --resume 它接着问';
+    const id = session.replace(/^codex:/, '');
+    const c = el('code', null, id);
+    c.title = '复制会话 ID，终端可用 ' + (session.startsWith('codex:') ? 'codex resume' : 'claude --resume') + ' 接着问';
     c.style.cursor = 'pointer';
-    c.onclick = () => copy(session, c);
+    c.onclick = () => copy(id, c);
     s.append(el('span', null, 'session '), c);
     const b = el('button', 'ghost', '接着问');
     b.onclick = () => openRun(j, session);
@@ -1202,7 +1236,10 @@ es.onmessage = (e) => {
     if (!sel || !jobs.has(sel)) sel = pick(m.jobs);
     renderAll();
   } else if (m.type === 'config') {
+    const wasClaude = cfg?.usesClaude;
     cfg = m.config;
+    if (cfg.usesClaude && !wasClaude) loadCC();
+    paintCfgDot();
     if (pendingReload && draft) { pendingReload = false; const k = keepStat; openSettings(pane); keepStat = k; renderFoot(); }
     // 设置开着、没有没保存的改动：别处改了配置（比如向导拉完工作区自动指过去）就跟着刷新，不然下次保存会把它盖回去
     else if (draft && !changes().length) {
@@ -1210,6 +1247,7 @@ es.onmessage = (e) => {
       loadProjects().then(() => { if (draft && !isSent(pane) && !changes().length) rerenderPane(); });
     }
     else if (!draft && hashPane() !== undefined) openSettings(hashPane());
+    if (draft) loadSetup();   // 模板换了执行器，向导要查的东西跟着变
     renderStatus(); loadChats(); renderAll();
   } else if (m.type === 'job') {
     const j = jobs.get(m.job.id) || { events: [] };
@@ -1218,19 +1256,25 @@ es.onmessage = (e) => {
     if (!sel && (!grp || j.chatId === grp) && modeOk(j)) sel = j.id;
     renderStatus(); renderGroups(); renderMid();
     if (j.id === sel) renderDetail();
-  } else if (m.type === 'setup' && m.section === 'plugin') {
+  } else if (m.type === 'setup') {
+    // 向导的检查项（装工具、测网关、扫码……）结束了：设置里的红点和每页顶上那条跟着刷新
+    if (m.done && draft) loadSetup();
+    if (m.section !== 'plugin') return;
     // 插件 / MCP 的进度（向导和设置共用这一路）：页头显示最新一条，结束了重拉状态
     ccSay(m.done ? (m.ok ? '✓ ' : '✗ ') + m.msg : m.msg, m.done && !m.ok);
     if (m.done) { loadCC(); if (ccAvail !== null) searchAvail(); }
   } else if (m.type === 'ev') {
     const j = jobs.get(m.id);
     if (!j) return;
-    j.events.push(m.ev);
+    const itemId = m.ev.kind === 'text' && m.ev.itemId;
+    const previous = itemId ? j.events.findIndex((e) => e.kind === 'text' && e.itemId === itemId) : -1;
+    if (previous < 0) j.events.push(m.ev); else j.events[previous] = m.ev;
     if (j.id !== sel || view !== 'trace') return;
     const flow = document.querySelector('#dbody .trace');
     if (!flow) return renderDetail();
     const n = evNode(m.ev, j.startedAt, flow._open);
-    if (n) flow.appendChild(n);
+    const old = itemId && flow.querySelector('[data-item-id="' + CSS.escape(itemId) + '"]');
+    if (old && n) old.replaceWith(n); else if (n) flow.appendChild(n);
     applyFilter(flow);
     const box = $('dbody');
     const near = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
@@ -1279,16 +1323,13 @@ async function loadChats() {
     renderGroups(); renderMid();
   } catch (e) { /* 没时间也能用 */ }
 }
-/** 项目候选：工作区（向导拉的 + 登记过的目录）。canPick = 桌面版，能弹系统的选目录框 */
-let projData = { workspaces: [], canPick: false };
+/** 项目候选：工作区（向导拉的 + 选过、登记进来的目录）。canPick = 弹得出系统的选目录框（桌面版、mac 上的命令行版） */
+let projData = { workspaces: [], canPick: false, home: '' };
 async function loadProjects() {
   try {
     const d = await fetch('/api/projects').then((r) => r.json());
-    projData = { workspaces: d.workspaces || [], canPick: !!d.canPick };
+    projData = { workspaces: d.workspaces || [], canPick: !!d.canPick, home: d.home || '' };
   } catch (e) { /* 拿不到就只能手填 */ }
-  const dl = $('projlist');
-  dl.textContent = '';
-  for (const w of projData.workspaces) { const o = el('option'); o.value = w.path; o.label = w.name; dl.appendChild(o); }
 }
 loadProjects();
 
@@ -1300,14 +1341,45 @@ loadProjects();
  * 会话开不开、用哪个模板不在这儿 —— 在会话头上直接切，立刻生效（见 chatCtl）。
  */
 // 不是模板的几页，键不会跟模板名撞；值是地址栏里的写法（#settings/~cc）
-const GENERAL = '\u0000general', USER = '\u0000user', BOT = '\u0000bot', CC = '\u0000cc', ENV = '\u0000env';
-const SENT = { [GENERAL]: '', [USER]: '~user', [BOT]: '~bot', [CC]: '~cc', [ENV]: '~env' };
+const GENERAL = '\u0000general', USER = '\u0000user', BOT = '\u0000bot', CC = '\u0000cc', LARK = '\u0000lark', REPO = '\u0000repo';
+const CODEX = '\u0000codex';
+/** API 来源并进了 Claude Code 页（只有 Claude 用它）。页面里「去 API」的链接都落到那儿 */
+const API = CC;
+const SENT = { [GENERAL]: '', [USER]: '~user', [BOT]: '~bot', [CC]: '~cc', [CODEX]: '~codex', [LARK]: '~lark', [REPO]: '~repo' };
+/** 以前的地址：刷新 / 收藏夹里留着的还能落到对的页 */
+const OLD_SENT = { '~api': CC, '~env': GENERAL };
+/**
+ * 嵌向导页的几页：向导那一段原样嵌进来（只要那一段、一直展开），点了立刻生效，跟底下的「保存」无关 ——
+ * 都是 lark-cli / git 那边的状态，不在 config.json 里
+ */
+const FRAMES = {
+  [LARK]: ['飞书', '/setup?embed&only=lark'],
+  [REPO]: ['代码仓库', '/setup?embed&only=workspace'],
+};
+/**
+ * 上手向导的检查项落在设置的哪一页：同一份状态（/api/setup/status），向导一段段走，设置里每页顶上列自己的、导航上标红点。
+ * 「上手向导」不再单独占一页
+ */
+const CHECK_PANE = (sid, cid) => sid === 'lark' ? LARK : sid === 'workspace' ? REPO : sid === 'plugin' ? CC
+  : sid === 'tools' ? ({ 'lark-cli': LARK, claude: CC, codex: CODEX, git: REPO })[cid]
+  : sid === 'model' ? (cid === 'codex' ? CODEX : CC) : undefined;
 const isSent = (k) => Object.hasOwn(SENT, k);
 const MODE_PANE = { user: USER, bot: BOT };
-const PERM = [['plan', '只读', '只查不改：读代码、查日志，不动任何文件'],
-  ['auto', '自动', '常规操作直接做，危险操作会被拦下'],
-  ['bypassPermissions', '全放开', '不做任何确认，什么都能执行 —— 只给自己用的模板']];
-const permLabel = (m) => (PERM.find(([v]) => v === (m || 'auto')) || [m, m])[1];
+/**
+ * 三档权限，两个执行器一套说法。模板里各存各的字段（Claude 的 permissionMode / Codex 的 codexSandbox），
+ * 换执行器时按档位带过去 —— 不然 Claude 那边选的「全放开」换成 Codex 就悄悄变成了只读，反过来更糟
+ */
+const LEVELS = [
+  { label: '只读', claude: 'plan', codex: 'read-only', tip: ['只查不改：读代码、查日志，不动任何文件', 'Shell 命令只能读文件'] },
+  { label: '可改', claude: 'auto', codex: 'workspace-write', tip: ['常规操作直接做，危险操作会被拦下', 'Shell 命令能改项目目录里的文件'] },
+  { label: '全放开', claude: 'bypassPermissions', codex: 'danger-full-access', tip: ['不做任何确认，什么都能执行 —— 只给自己用的模板', '不进沙箱，什么命令都能跑 —— 只给自己用的模板'] },
+];
+const agentName = (t) => t?.agent === 'codex' ? 'Codex' : 'Claude Code';
+const engineOf = (t) => t?.agent === 'codex' ? 'codex' : 'claude';
+const permission = (t) => t?.agent === 'codex' ? (t.codexSandbox || 'read-only') : (t?.permissionMode || 'auto');
+const levelOf = (t) => LEVELS.find((l) => l[engineOf(t)] === permission(t));
+const permLabel = (t) => levelOf(t)?.label || permission(t);
+const isReadOnly = (t) => levelOf(t) === LEVELS[0];
 
 let draft = null;          // 设置里正在编的副本；null = 设置没开
 let saved = null;          // draft 的已保存快照，算"改了哪些"用
@@ -1318,16 +1390,14 @@ let advOpen = false;       // 「高级」展开着没有（重画时保持）
 let pendingReload = false; // 刚保存：等服务端推回新配置后重建 draft（token 只剩 hasToken）
 let keepStat = '';         // 保存后的提示，重建 draft 后接着显示
 
-/** 服务端配置 → 可编辑的副本。网关 token 拿不到原值：from 记原模板名，没新填 token = 沿用已存的 */
+/** 服务端配置 → 可编辑的副本 */
 const modeDraft = (m) => ({ on: m.on, defaultTemplate: m.defaultTemplate, chats: { ...m.chats }, allP2p: m.allP2p, allGroups: m.allGroups });
 const editable = () => ({
   user: modeDraft(cfg.user), bot: modeDraft(cfg.bot),
-  pollMs: cfg.pollMs, maxJobs: cfg.maxJobs, judgeModel: cfg.judgeModel,
-  templates: Object.fromEntries(Object.entries(cfg.templates).map(([k, t]) => {
-    const c = JSON.parse(JSON.stringify(t));
-    if (c.gateway) c.gateway = { baseUrl: c.gateway.baseUrl, hasToken: c.gateway.hasToken, from: k };
-    return [k, c];
-  })),
+  pollMs: cfg.pollMs, maxJobs: cfg.maxJobs,
+  templates: JSON.parse(JSON.stringify(cfg.templates)),
+  // from：存着的名字。令牌页面上拿不到，改了名服务端靠它找回来；token 没这个键 = 不改，'' = 清掉
+  apis: cfg.apis.map((a) => ({ ...a, models: { ...a.models }, from: a.name })),
 });
 
 function openSettings(at) {
@@ -1337,7 +1407,9 @@ function openSettings(at) {
   renamed = {}; judgeStash = {};
   if (at !== undefined) pane = at;
   if (!isSent(pane) && !draft.templates[pane]) pane = draft.user.defaultTemplate;
-  if (pane === CC && first) loadCC(true);   // 配置推送也会走到这里重建 draft，别每次都让服务端重扫
+  if (pane === CC && first) { loadCC(true); loadApiHealth(); }   // 配置推送也会走到这里重建 draft，别每次都让服务端重扫
+  if (first) loadSetup();
+  if (pane === CODEX && first) loadCodex();
   ensureModelList();
   $('settings').hidden = false; $('stage').hidden = true;
   $('btn-cfg').setAttribute('aria-pressed', 'true');
@@ -1362,6 +1434,7 @@ function hashPane() {
   if (!m) return undefined;
   const sent = Object.keys(SENT).find((k) => SENT[k] && SENT[k] === m[1]);
   if (sent) return sent;
+  if (OLD_SENT[m[1]]) return OLD_SENT[m[1]];
   try { return m[1] ? decodeURIComponent(m[1]) : GENERAL; } catch (e) { return GENERAL; }
 }
 
@@ -1369,7 +1442,8 @@ function hashPane() {
 function changes() {
   if (!draft) return [];
   const out = new Set();
-  if (['maxJobs', 'judgeModel'].some((k) => draft[k] !== saved[k])) out.add(GENERAL);
+  if (draft.maxJobs !== saved.maxJobs) out.add(GENERAL);
+  if (JSON.stringify(draft.apis) !== JSON.stringify(saved.apis)) out.add(CC);
   for (const k of ['user', 'bot']) {
     const d = draft[k], s = saved[k];
     if (['on', 'allP2p', 'allGroups'].some((f) => d[f] !== s[f]) || (renamed[d.defaultTemplate] || d.defaultTemplate) !== s.defaultTemplate
@@ -1387,7 +1461,7 @@ function changes() {
 
 function renderSettings() { renderNav(); renderPane(); renderFoot(); syncHash(); }
 /** 任何一处改动都调它：只刷左栏的小圆点和底下的保存条，不重画正在打字的那块 */
-function touch() { keepStat = ''; renderNav(); renderFoot(); }
+function touch() { keepStat = ''; renderNav(); renderFoot(); if (draft?.templates[pane]) queueExplain(); }
 
 function renderFoot() {
   const n = changes().length;
@@ -1396,8 +1470,8 @@ function renderFoot() {
   else { st.textContent = n ? n + ' 处改动还没保存（' + SAVE_KEY + ' 保存）' : '改了会在这里提示，点「保存」才生效'; st.className = n ? 'dirty' : 'note'; }
   $('set-save').disabled = !n;
   $('set-revert').disabled = !n;
-  // 「环境」里点了就生效，用不着保存条；别的页还有没保存的改动就留着，不然找不到地方存
-  $('set-save').closest('footer').style.display = pane === ENV && !n ? 'none' : '';
+  // 嵌向导的页点了就生效，用不着保存条；别的页还有没保存的改动就留着，不然找不到地方存
+  $('set-save').closest('footer').style.display = (FRAMES[pane] || pane === CODEX) && !n ? 'none' : '';
 }
 
 const SAVE_KEY = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘S' : 'Ctrl+S';
@@ -1413,17 +1487,25 @@ function renderNav() {
   back.title = '回到主界面（Esc）'; back.onclick = closeSettings;
   nav.append(back, el('div', 'navtitle', '设置'));
   nav.appendChild(navItem(GENERAL, '常规', '', dirty.has(GENERAL)));
-  nav.appendChild(navItem(ENV, '环境', '网关 · 飞书 · 工作区', false));
-  const ccItem = navItem(CC, 'Claude Code', '', false);
-  if (cc?.needsAuth) { const c = el('span', 'navcount', String(cc.needsAuth)); c.title = cc.needsAuth + ' 个 MCP 要重新授权'; ccItem.appendChild(c); }
+  nav.appendChild(navItem(LARK, '飞书', '应用 · 登录', false));
+  nav.appendChild(navItem(REPO, '代码仓库', '工作区 · git', false));
+  // 执行器：两边同一个结构（装没装、账号 / 连接、插件 / MCP）。没有模板在用的灰掉，它的问题也不标
+  nav.appendChild(el('h4', null, '执行器'));
+  const uses = (e) => Object.values(draft.templates).some((t) => engineOf(t) === e);
+  const ccItem = navItem(CC, 'Claude Code', uses('claude') ? 'API · 插件' : '没有模板在用', dirty.has(CC));
+  if (uses('claude') && cc?.needsAuth) { const c = el('span', 'navcount', String(cc.needsAuth)); c.title = cc.needsAuth + ' 个 MCP 要重新授权'; ccItem.appendChild(c); }
+  ccItem.classList.toggle('dim', !uses('claude'));
   nav.appendChild(ccItem);
+  const cxItem = navItem(CODEX, 'Codex', uses('codex') ? '连接 · MCP' : '没有模板在用', false);
+  cxItem.classList.toggle('dim', !uses('codex'));
+  nav.appendChild(cxItem);
   nav.appendChild(el('h4', null, '入口'));
   nav.appendChild(navItem(USER, '@我', draft.user.on ? '' : '关', dirty.has(USER)));
   nav.appendChild(navItem(BOT, '@机器人', draft.bot.on ? '' : '关', dirty.has(BOT)));
   nav.appendChild(el('h4', null, '模板'));
   for (const name of Object.keys(draft.templates)) {
     const n = useCount(name);
-    const sub = [name === draft.user.defaultTemplate && '@我默认', name === draft.bot.defaultTemplate && '@机器人默认', n && String(n)]
+    const sub = [agentName(draft.templates[name]), name === draft.user.defaultTemplate && '@我默认', name === draft.bot.defaultTemplate && '@机器人默认', n && String(n)]
       .filter(Boolean).join(' · ');
     nav.appendChild(navItem(name, name, sub, dirty.has(name)));
   }
@@ -1441,12 +1523,15 @@ function navItem(key, label, sub, dirty) {
   b.setAttribute('aria-current', String(pane === key));
   b.append(el('span', 'nm' + (dirty ? ' dirty' : ''), label));
   if (sub) b.append(el('small', null, sub));
+  const bad = paneBad(key);
+  if (bad.length) { const d = el('span', 'navbad'); d.title = bad.map((c) => c.label + '：' + (c.detail || '')).join('\n'); d.setAttribute('aria-label', bad.length + ' 项没弄好'); b.appendChild(d); }
   b.onclick = () => go(key);
   return b;
 }
 /** 设置里跳到某页（导航、页面里的「去 @我 页」之类的链接都走这里） */
 function go(key) {
-  if (key === CC && pane !== CC) loadCC(true);
+  if (key === CC && pane !== CC) { loadCC(true); loadApiHealth(); }
+  if (key === CODEX && pane !== CODEX) loadCodex();
   pane = key; renderSettings(); $('set-body').scrollTop = 0;
 }
 /** 页面里的小链接：点了跳到设置的另一页 */
@@ -1454,16 +1539,18 @@ function goLink(text, key) { const a = el('button', 'link', text); a.type = 'but
 
 function renderPane() {
   const head = $('set-head'), body = $('set-body');
-  // 「环境」嵌的是向导页：配置推送也会走到这里重画，iframe 一挪就重载、填了一半的字会丢 —— 已经在了就别动
-  if (pane === ENV && body.querySelector('.envframe')) return;
+  // 嵌的是向导页：配置推送也会走到这里重画，iframe 一挪就重载、填了一半的字会丢 —— 已经在了就别动
+  if (FRAMES[pane] && body.querySelector('.envframe')?.dataset.pane === pane) return;
   head.textContent = ''; body.textContent = '';
-  body.classList.toggle('is-frame', pane === ENV);
+  body.classList.toggle('is-frame', !!FRAMES[pane]);
   if (!isSent(pane) && !draft.templates[pane]) pane = GENERAL;
+  if ([CC, CODEX, ...Object.keys(FRAMES)].includes(pane)) body.appendChild(strip(pane));
   if (pane === GENERAL) paneGeneral(head, body);
   else if (pane === USER) paneEntry(head, body, 'user');
   else if (pane === BOT) paneEntry(head, body, 'bot');
   else if (pane === CC) paneCC(head, body);
-  else if (pane === ENV) paneEnv(head, body);
+  else if (pane === CODEX) paneCodex(head, body);
+  else if (FRAMES[pane]) paneFrame(head, body, ...FRAMES[pane]);
   else paneTemplate(head, body, pane);
 }
 /** 重画右边但别跳回顶上（开关判定之类会多出 / 少掉一块） */
@@ -1502,14 +1589,13 @@ function ensureModelList() {
   let dl = $('modellist');
   if (!dl) { dl = el('datalist'); dl.id = 'modellist'; document.body.appendChild(dl); }
   dl.textContent = '';
-  for (const m of new Set(['claude-haiku-4-5', ...(cfg.models || [])])) { const o = el('option'); o.value = m; dl.appendChild(o); }
+  for (const m of new Set(cfg.models || [])) { const o = el('option'); o.value = m; dl.appendChild(o); }
 }
 const setOr = (o, k, v) => { if (v === '' || v === undefined || v === null || (Array.isArray(v) && !v.length)) delete o[k]; else o[k] = v; };
 
-/** 环境：上手向导那一页原样嵌进来（工具、网关、飞书、工作区、插件），向导能配的这里都能改。点了立刻生效，跟底下的「保存」无关 */
-function paneEnv(head, body) {
-  head.append(el('h2', null, '环境'), el('span', 'pmeta', '改了立刻生效'));
-  const f = el('iframe', 'envframe'); f.src = '/setup?embed'; f.title = '环境';
+function paneFrame(head, body, title, src) {
+  head.append(el('h2', null, title), el('span', 'pmeta', '改了立刻生效'));
+  const f = el('iframe', 'envframe'); f.src = src; f.title = title; f.dataset.pane = pane;
   body.appendChild(f);
 }
 
@@ -1522,16 +1608,11 @@ function paneGeneral(head, body) {
   b1.appendChild(g1);
   body.appendChild(b1);
 
-  const b2 = blk('判定模型', '开了「先判定」的模板，每条 @ 先用它直接调一次 API 判要不要回。只做分类，挑快的。打哪个网关跟着模板走。');
-  const jm = el('input'); jm.value = draft.judgeModel || ''; jm.setAttribute('list', 'modellist');
-  jm.oninput = () => { if (jm.value.trim()) { draft.judgeModel = jm.value.trim(); touch(); } };
-  const g2 = el('div', 'grid2'); g2.append(fi('模型', jm));
-  b2.appendChild(g2);
-  body.appendChild(b2);
-
-  const b3 = blk('服务', '端口在 config.json 里，改完要重启进程。「我」（飞书登录）和默认网关在「环境」里改。');
+  const b3 = blk('服务', '端口在 config.json 里，改完要重启进程。');
+  b3.querySelector('.hint').append('「我」在 ', goLink('飞书', LARK), ' 里换，API 来源在 ', goLink('Claude Code', CC), ' 里改（判定用来源 haiku 那档的模型）。');
   const dl = el('dl', 'kv');
-  for (const [k, v] of [['监听', '127.0.0.1:' + cfg.port + '（只回环）'], ['我', cfg.me], ['默认网关', cfg.defaultBaseUrl]]) dl.append(el('dt', null, k), el('dd', null, v));
+  const apis = cfg.apis.length ? cfg.apis.map((a) => a.name).join(' → ') + '（按顺序，出问题换下一个）' : cfg.ownClaude;
+  for (const [k, v] of [['监听', '127.0.0.1:' + cfg.port + '（只回环）'], ['我', cfg.me], ['API 来源', apis]]) dl.append(el('dt', null, k), el('dd', null, v));
   b3.appendChild(dl);
   body.appendChild(b3);
 }
@@ -1546,10 +1627,28 @@ const ENTRY = {
   bot: { title: '@机器人', what: '有人 @机器人，以机器人回',
     how: '长连接收消息，秒级开跑，卡片流式打字。群里 @它、或者私聊它（不用 @）。追问：群里在话题里再 @它，私聊引用它的卡片。' },
 };
+/** 一个入口够得着的、不是只读的模板 → 谁能触发它。@我 的私聊默认只有对方和我，不算 */
+function entryRisks(k, m) {
+  const out = new Map();
+  const add = (tn, who) => { if (draft.templates[tn] && !isReadOnly(draft.templates[tn])) out.set(tn, [...(out.get(tn) || []), who]); };
+  if (m.allGroups) add(m.defaultTemplate, '所有群里 @' + (k === 'bot' ? '机器人' : '我') + ' 的人');
+  if (m.allP2p && k === 'bot') add(m.defaultTemplate, '任何私聊机器人的人');
+  const groups = Object.entries(m.chats).filter(([id]) => !isP2P(id));
+  const byTpl = new Map();
+  for (const [, tn] of groups) {
+    const n = draft.templates[tn] ? tn : m.defaultTemplate;
+    if (!(m.allGroups && n === m.defaultTemplate)) byTpl.set(n, (byTpl.get(n) || 0) + 1);   // 整类放开已经算过了
+  }
+  for (const [tn, n] of byTpl) add(tn, n + ' 个单独开了的群');
+  return [...out].map(([tn, who]) => [tn, who.join('、')]);
+}
+
 function paneEntry(head, body, k) {
   const m = draft[k], E = ENTRY[k];
   head.appendChild(el('h2', null, E.title));
   if (k === 'bot' && cfg.bot.name) head.appendChild(el('span', 'pmeta', cfg.bot.name));
+  const who = el('span', 'pmeta'); who.appendChild(goLink(k === 'user' ? '换飞书账号 / 重新扫码' : '换飞书应用', LARK));
+  head.appendChild(who);
 
   const b0 = blk(E.what, E.how);
   b0.querySelector('.blkh').appendChild(sw(m.on, '', (v) => { m.on = v; touch(); rerenderPane(); }));
@@ -1573,14 +1672,20 @@ function paneEntry(head, body, k) {
   for (const name of Object.keys(draft.templates)) { const o = el('option'); o.value = name; o.textContent = name; bs.appendChild(o); }
   bs.value = m.defaultTemplate;
   bs.onchange = () => { m.defaultTemplate = bs.value; touch(); renderNav(); rerenderPane(); };
-  const perm = draft.templates[m.defaultTemplate]?.permissionMode || 'auto';
+  const t = draft.templates[m.defaultTemplate];
   const tip = el('p', 'hint');
-  tip.append('权限：' + permLabel(perm) + '。');
-  if (k === 'bot' && perm !== 'plan' && m.allP2p) { tip.className = 'hint bad'; tip.append('不是只读，而且所有私聊都回 —— 任何人私聊机器人都能让它动手。'); }
-  else if (k === 'bot' && perm === 'plan') tip.append('谁来问都只查不改。');
-  tip.append(' ', goLink('编辑这个模板', m.defaultTemplate));
+  tip.append('权限：' + permLabel(t) + '。 ', goLink('编辑这个模板', m.defaultTemplate));
   const g2 = el('div', 'grid2'); g2.append(fi('模板', bs, tip));
   b2.appendChild(g2);
+  // 这个入口够得着的模板里不是只读的：别人发的消息能让它动手。默认模板管整类放开的那些会话，单独选的管各自的会话
+  const risky = entryRisks(k, m);
+  if (risky.length) {
+    const w = el('div', 'hint bad');
+    w.append('这些会话里别人发的消息能让它动手（模板不是只读）：');
+    const ul = el('ul'); for (const [tn, who] of risky) { const li = el('li'); li.append(goLink('「' + tn + '」', tn), '（' + permLabel(draft.templates[tn]) + '）：' + who); ul.appendChild(li); }
+    w.appendChild(ul);
+    b2.appendChild(w);
+  }
   body.appendChild(b2);
 
   if (k === 'user') {
@@ -1590,6 +1695,131 @@ function paneEntry(head, body, k) {
     b3.appendChild(g3);
     body.appendChild(b3);
   }
+}
+
+/* ---------- 设置里的向导状态：导航红点 + 每页顶上没弄好的检查项 ---------- */
+let setupSt = null;   // GET /api/setup/status，跟上手向导同一份
+async function loadSetup() {
+  try { setupSt = await fetch('/api/setup/status').then((r) => r.json()); } catch (e) { return; }
+  if (draft) { renderNav(); paintStrip(); }
+}
+const paneChecks = (key) => (setupSt?.sections || []).flatMap((s) => s.checks.filter((c) => CHECK_PANE(s.id, c.id) === key).map((c) => ({ ...c, sid: s.id })));
+const paneBad = (key) => paneChecks(key).filter((c) => !c.optional && (c.state === 'missing' || c.state === 'error'));
+const STRIP_STATE = { missing: '没弄好', error: '出错了', running: '检测中' };
+/**
+ * 这一页还没弄好的检查项。嵌向导的页（飞书、代码仓库）那一段自己会列，这里只补「工具」那段的（lark-cli / git 装没装）；
+ * Claude Code 页的 MCP 授权底下有专门一块，不重复
+ */
+function strip(key) {
+  const box = el('div', 'strip'); box.id = 'set-strip';
+  const list = paneChecks(key).filter((c) => c.state !== 'ok' && (!FRAMES[key] || c.sid === 'tools') && !(key === CC && c.id.startsWith('mcp:')));
+  for (const c of list) {
+    const row = el('div', 'strow');
+    row.append(el('span', 'ccst ' + c.state, STRIP_STATE[c.state] || c.state), el('b', null, c.label), el('span', 'stdt', c.detail || ''));
+    if (c.action) row.appendChild(btn(c.action.label, async (e) => {
+      e.target.disabled = true;
+      const d = await post(c.action.route, c.action.body || {}).catch((err) => ({ error: err.message }));
+      if (d.error || d.ok === false) { row.querySelector('.stdt').textContent = '✗ ' + (d.error || '没成功'); e.target.disabled = false; }
+      else if (d.started) row.querySelector('.stdt').textContent = '进行中…（好了会自己刷新）';
+      else loadSetup();
+    }, 'primary'));
+    box.appendChild(row);
+  }
+  box.hidden = !list.length;
+  return box;
+}
+function paintStrip() { const s = $('set-strip'); if (s && draft) s.replaceWith(strip(pane)); }
+
+/* ---------- 设置 → Claude Code：API 来源（进保存条）---------- */
+/** 每个来源最近一次怎么样、在不在歇（只在服务端内存里，重启清零） */
+let apiHealthMap = {};
+async function loadApiHealth() {
+  const d = await fetch('/api/setup/model').then((r) => r.json()).catch(() => ({}));
+  apiHealthMap = d.health || {};
+  if (draft && pane === CC) ccRender();
+}
+const hm = (t) => new Date(t).toTimeString().slice(0, 5);
+function healthText(a) {
+  const h = apiHealthMap[a.from || a.name];
+  if (!h) return ['这次启动后还没用过', false];
+  if (h.restingUntil) return [hm(h.at) + ' ' + (h.note || '出了问题') + '，歇到 ' + hm(h.restingUntil) + '，这期间排到最后', true];
+  return h.ok ? ['最近一次 ' + hm(h.at) + ' 正常', false] : ['最近一次 ' + hm(h.at) + ' ' + (h.note || '出了问题'), true];
+}
+
+function apiBlock() {
+  const b = blk('API 来源', '按顺序用：前一个额度用完、限流、令牌失效，自动换下一个接着跑。模板只选档位，这里填每一档在各来源上叫什么。改完点底下「保存」。');
+  if (!draft.apis.length) b.appendChild(el('p', 'hint', '一个都没配：跟 claude 自己的配置走（' + (cfg.ownClaude || '?') + '）。'));
+  draft.apis.forEach((a, i) => b.appendChild(apiRow(a, i)));
+  const uniq = (n) => { let x = n, i = 2; while (draft.apis.some((a) => a.name === x)) x = n + ' ' + i++; return x; };
+  const add = (a) => () => { draft.apis.push(a()); touch(); rerenderPane(); };
+  const acts = el('div', 'inrow'); acts.style.marginTop = '12px';
+  acts.append(btn('+ 网关', add(() => ({ name: uniq('网关'), kind: 'gateway', baseUrl: '', models: {} })), 'ghost'),
+    btn('+ Claude 订阅', add(() => ({ name: uniq('Claude 订阅'), kind: 'subscription', models: {} })), 'ghost'));
+  b.appendChild(acts);
+  return b;
+}
+function apiRow(a, i) {
+  const box = el('div', 'apirow');
+  const sub = a.kind === 'subscription';
+  // data-k：Claude Code 页会因为插件状态刷新重画，带着它的输入框重画后焦点和光标还在（见 ccRender）
+  const name = el('input'); name.value = a.name; name.setAttribute('aria-label', '来源名字'); name.dataset.k = 'api-name-' + i;
+  // 改名：固定用它的模板跟着改（服务端存的时候按 from 再对一遍）
+  let prev = a.name;
+  name.oninput = () => { a.name = name.value.trim(); touch(); };
+  name.onchange = () => { for (const t of Object.values(draft.templates)) if (t.api === prev) t.api = a.name; prev = a.name; touch(); };
+  const move = (d) => () => { [draft.apis[i], draft.apis[i + d]] = [draft.apis[i + d], draft.apis[i]]; touch(); rerenderPane(); };
+  const up = btn('↑', move(-1), 'ghost'), down = btn('↓', move(1), 'ghost');
+  up.disabled = i === 0; down.disabled = i === draft.apis.length - 1;
+  up.setAttribute('aria-label', '往前挪'); down.setAttribute('aria-label', '往后挪');
+  const del = btn('删掉', () => {
+    draft.apis.splice(i, 1);
+    for (const t of Object.values(draft.templates)) if (t.api === a.name) delete t.api;   // 固定用它的模板就不固定了
+    touch(); rerenderPane();
+  }, 'ghost danger');
+  const h = el('div', 'apih');
+  h.append(el('span', 'pmeta', String(i + 1)), name, el('span', 'badge', sub ? 'Claude 订阅' : '网关'), up, down, del);
+  box.appendChild(h);
+
+  if (!sub) {
+    const url = el('input'); url.value = a.baseUrl || ''; url.placeholder = 'http://…'; url.spellcheck = false; url.dataset.k = 'api-url-' + i;
+    url.oninput = () => { a.baseUrl = url.value.trim(); touch(); };
+    box.appendChild(fi('地址', url));
+  }
+  const tok = el('input'); tok.type = 'password'; tok.autocomplete = 'off'; tok.value = a.token || ''; tok.dataset.k = 'api-tok-' + i;
+  const clr = btn('清掉', () => { a.token = ''; tok.value = ''; ph(); touch(); }, 'ghost');
+  const ph = () => {
+    tok.placeholder = a.token === '' ? '保存后清掉' : a.hasToken ? '已保存，留空不改' : sub ? '不填 = 用 claude 自己登录的账号' : '网关给你的令牌';
+    clr.hidden = !a.hasToken || a.token === '';
+  };
+  tok.oninput = () => { if (tok.value) a.token = tok.value; else delete a.token; ph(); touch(); };
+  ph();
+  const tr = el('div', 'inrow'); tr.append(tok, clr);
+  box.appendChild(fi('令牌', tr, sub ? '桌面版要填（它的 claude 配置是单独的）：终端里跑 claude setup-token，用订阅账号登录，把令牌贴进来。' : null));
+
+  const models = a.models || (a.models = {});
+  const g = el('div', 'grid3');
+  for (const [k, cn] of [['opus', '强'], ['sonnet', '中'], ['haiku', '快 · 判定也用']]) {
+    const m = el('input'); m.value = models[k] || ''; m.placeholder = '不填 = 原名'; m.spellcheck = false; m.dataset.k = 'api-' + k + '-' + i;
+    m.oninput = () => { if (m.value.trim()) models[k] = m.value.trim(); else delete models[k]; touch(); };
+    g.appendChild(fi(k + ' · ' + cn, m));
+  }
+  box.appendChild(g);
+  box.appendChild(el('p', 'hint', sub ? '订阅直接认 opus / sonnet / haiku，一般不用填。' : '每一档在这个网关上叫什么。只认一个名字的网关（比如 claude-auto）三格都填它；官方 API 不用填。'));
+
+  const [ht, hbad] = healthText(a);
+  const res = el('p', 'hint' + (hbad ? ' bad' : ''), ht);
+  const test = btn('测一下', async () => {
+    test.disabled = true; res.className = 'hint'; res.textContent = sub ? '让 claude 答一句，十来秒…' : '把要用到的模型名挨个打一遍…';
+    const { hasToken, ...body } = a;
+    const d = await post('/api/setup/apis/test', body).catch((e) => ({ error: e.message }));
+    const r = d.result;
+    res.className = 'hint' + (r?.ok ? '' : ' bad');
+    res.textContent = r ? (r.ok ? '✓ ' : '✗ ') + r.detail + (r.ms ? '（' + r.ms + 'ms）' : '') : '✗ ' + (d.error || '测不了');
+    test.disabled = false;
+  });
+  const ta = el('div', 'inrow'); ta.style.marginTop = '10px'; ta.append(test, res);
+  box.appendChild(ta);
+  return box;
 }
 
 /* ---------- 设置 → Claude Code：插件 / MCP 授权 / skill / 插件市场 ---------- */
@@ -1622,7 +1852,7 @@ async function loadCC(fresh) {
 }
 /** 顶栏「设置」：有 MCP 要授权就带个点，点开直接到 Claude Code 页 */
 function paintCfgDot() {
-  const b = $('btn-cfg'), n = cc?.needsAuth || 0;
+  const b = $('btn-cfg'), n = cfg?.usesClaude && cc?.needsAuth || 0;
   b.classList.toggle('has-dot', n > 0);
   b.title = n ? n + ' 个 MCP 要重新授权' : '';
   b.setAttribute('aria-label', n ? '设置（' + n + ' 个 MCP 要重新授权）' : '设置');
@@ -1663,6 +1893,90 @@ function ccRow(name, subs, acts, hintNode) {
 }
 const CC_STATE = { ok: '已连接', missing: '要授权', error: '连不上', running: '检查中' };
 
+let codexData, codexBusy = false, codexNote = '', codexError = '';
+async function loadCodex(edit) {
+  if (codexBusy) return;
+  codexBusy = true; codexNote = ''; codexError = '';
+  if (!edit) codexData = undefined;
+  const paint = () => { if (draft && (pane === CODEX || draft.templates[pane]?.agent === 'codex')) rerenderPane(); };
+  if (pane === CODEX) paint();
+  const url = '/api/setup/codex/settings';
+  try {
+    if (edit) {
+      const r = await post(url, { ...edit, version: codexData.version });
+      if (r.error) throw new Error(r.error);
+      codexNote = r.overridden ? '已写入，更高优先级的配置覆盖了这个值。' : '已保存';
+    }
+    const res = await fetch(url);
+    if (res.status === 404) throw new Error('当前路由器还没有 Codex 配置接口，重启路由器后再刷新。');
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || '读取 Codex 配置失败');
+    if (!Array.isArray(data.models)) throw new Error('当前路由器还没有模型列表接口，重启路由器后再刷新。');
+    codexData = data;
+  } catch (e) { codexError = e.message; }
+  finally { codexBusy = false; paint(); }
+}
+
+function codexModelFields(model, effort, template, locked, change) {
+  const models = codexData?.models || [];
+  const ms = el('select'), es = el('select');
+  ms.add(new Option(template ? '跟随 Codex 设置' : 'Codex 默认模型', ''));
+  for (const m of models) ms.add(new Option(m.label, m.model));
+  if (model && !models.some(m => m.model === model)) ms.add(new Option(model + '（当前配置）', model));
+  ms.value = model;
+  ms.disabled = locked || !models.length;
+  function efforts(preserve) {
+    const effective = ms.value || (template && codexData?.model);
+    const m = models.find(m => effective ? m.model === effective : m.isDefault);
+    const inherited = template && m?.efforts.includes(codexData?.effort) ? codexData.effort : m?.defaultEffort;
+    es.replaceChildren(new Option((template ? '跟随 Codex 设置' : '模型默认') + (inherited ? '（' + inherited + '）' : ''), ''));
+    for (const v of m?.efforts || []) es.add(new Option(v, v));
+    if (preserve && effort && !m?.efforts.includes(effort)) {
+      const old = new Option(effort + '（当前配置）', effort); old.disabled = true; es.add(old);
+    }
+    es.value = preserve || m?.efforts.includes(effort) ? effort : '';
+    es.disabled = locked || (!m?.efforts.length && !effort);
+  }
+  efforts(true);
+  ms.onchange = () => { efforts(false); effort = es.value; change(ms.value, effort); };
+  es.onchange = () => { effort = es.value; change(ms.value, effort); };
+  const g = el('div', 'grid2');
+  g.append(fi(template ? '模型' : '默认模型', ms), fi('推理强度（effort）', es));
+  return g;
+}
+
+function paneCodex(head, body) {
+  head.appendChild(el('h2', null, 'Codex'));
+  const status = el('span', codexError ? 'warn' : 'pmeta', codexError || (codexBusy ? '处理中…' : codexNote));
+  status.setAttribute('role', 'status');
+  const refresh = btn('刷新', () => loadCodex());
+  refresh.disabled = codexBusy;
+  head.append(status, el('span', 'spacer'), refresh);
+  if (!codexData) return;
+
+  const d = codexData;
+  const locked = codexBusy || !d.version;
+  // 默认模型是你本机 Codex 自己的配置：这里只看不改（改了连终端里的 codex 也变）。要换就在模板里单独选
+  const basic = blk('App Server', 'Codex 用它自己的登录、模型和 MCP。默认模型改你本机 Codex 的配置；每个模板可以单独选模型和推理强度。');
+  basic.appendChild(ccRow('已连接', [d.connection], []));
+  if (d.file) basic.appendChild(ccRow('配置文件', [d.file], []));
+  const def = d.models.find((m) => m.model === d.model) || d.models.find((m) => m.isDefault);
+  basic.appendChild(ccRow('默认模型', [(def?.label || d.model || '（Codex 自己挑）') + (d.effort ? ' · 推理强度 ' + d.effort : '')], []));
+  body.appendChild(basic);
+
+  for (const [key, label] of [['mcp', 'MCP 服务'], ['plugins', '插件']]) {
+    const section = blk(label);
+    if (!d[key].length) section.appendChild(el('p', 'hint', '当前配置未列出' + label + '。'));
+    for (const { name, enabled } of d[key]) {
+      const toggle = btn(enabled ? '停用' : '启用', () => loadCodex({ kind: key, name, value: !enabled }));
+      toggle.disabled = locked;
+      toggle.setAttribute('aria-label', (enabled ? '停用 ' : '启用 ') + name);
+      section.appendChild(ccRow(name, [enabled ? '已启用' : '已停用'], [toggle]));
+    }
+    body.appendChild(section);
+  }
+}
+
 function paneCC(head, body) {
   head.appendChild(el('h2', null, 'Claude Code'));
   const st = el('span', ccMsg?.bad ? 'warn' : 'pmeta', ccMsg?.text || ''); st.id = 'cc-stat';
@@ -1675,8 +1989,10 @@ function paneCC(head, body) {
   rb.title = '重新查一遍插件和 MCP 的状态（MCP 要挨个连一下，几秒）';
   head.appendChild(rb);
 
-  const intro = el('p', 'hint', '这一页的操作立刻生效，不用点保存；新的 @ 就用上。');
+  body.appendChild(apiBlock());
+  const intro = el('p', 'hint', '下面插件、MCP、skill 的操作点了就生效，不用保存；新的 @ 就用上。');
   if (cc?.configDir) intro.append(el('br'), '配置在 ' + cc.configDir + '（跟你自己终端里的 Claude Code 分开）');
+  intro.style.marginTop = '22px';
   body.appendChild(intro);
   if (!cc) { body.appendChild(el('p', 'note', '加载中…')); return; }
   if (cc.error) body.appendChild(el('p', 'hint bad', cc.error));
@@ -1841,6 +2157,31 @@ async function mcpLogout(m) {
   loadCC();
 }
 
+/**
+ * 模板顶上「实际会怎么跑」：把页面上这份（没保存的也算）交给服务端，按真跑时同一套规则算出来 ——
+ * 档位在每个来源上叫什么、哪个字段被谁盖了、判定打不打得到。页面不自己猜，免得跟真跑的对不上
+ */
+let explainT, explainSeq = 0;
+function queueExplain() { clearTimeout(explainT); explainT = setTimeout(paintExplain, 250); }
+async function paintExplain() {
+  const name = pane, t = draft?.templates[name];
+  if (!t || !$('explain')) return;
+  const seq = ++explainSeq;
+  const d = await post('/api/explain', { template: t, apis: draft.apis.map(({ hasToken, ...a }) => a) }).catch((e) => ({ error: e.message }));
+  const box = $('explain');
+  if (seq !== explainSeq || !box || pane !== name) return;
+  box.textContent = '';
+  if (d.error) { box.appendChild(el('dd', 'bad', '算不出来：' + d.error)); return; }
+  for (const l of d.lines) {
+    box.append(el('dt', l.bad ? 'bad' : null, l.k), el('dd', [l.code && 'code', l.bad && 'bad'].filter(Boolean).join(' ') || null, l.v));
+  }
+  // 判定那行也摆到「先判定」开关底下：开了却打不到的，在开的地方就看得见
+  const jt = $('judge-target'), j = d.lines.find((l) => l.k === '判定');
+  if (jt && j) { jt.textContent = t.judge ? j.v : ''; jt.className = 'hint' + (j.bad ? ' bad' : ''); jt.hidden = !t.judge; }
+  const tr = $('explain-try');
+  if (tr) { const dirty = changes().length; tr.disabled = dirty > 0; tr.title = dirty ? '有改动没保存：先保存，试跑用的是保存过的配置' : '按这个模板真跑一次，卡片发给你自己'; }
+}
+
 function paneTemplate(head, body, name) {
   const t = draft.templates[name];
   // 哪个入口拿它当默认（默认在 @我 / @机器人 页里选）
@@ -1858,39 +2199,88 @@ function paneTemplate(head, body, name) {
   head.appendChild(el('span', 'pmeta', n ? n + ' 个会话在用' : '没有会话在用'));
   if (!defs.length) { const dh = el('span', 'pmeta'); dh.append('默认模板在 ', goLink('@我', USER), ' / ', goLink('@机器人', BOT), ' 页里选'); head.appendChild(dh); }
 
+  // 实际会怎么跑：放最上面，下面改一处这里跟着变
+  const be = blk('实际会怎么跑', '按页面上现在这份算（没保存的也算），跟真跑时用同一套规则。');
+  const tryBtn = btn('用这个模板试跑', () => { if (!changes().length) openRun(undefined, undefined, name); });
+  tryBtn.id = 'explain-try';
+  be.querySelector('.blkh').append(el('span', 'spacer'), tryBtn);
+  const kv = el('dl', 'kv eff'); kv.id = 'explain'; kv.appendChild(el('dd', 'note', '计算中…'));
+  be.appendChild(kv);
+  body.appendChild(be);
+  queueExplain();
+
   // 基本
   const b1 = blk('基本');
+  const codex = t.agent === 'codex';
+  const engine = el('div', 'seg2');
+  engine.setAttribute('role', 'group'); engine.setAttribute('aria-label', '模板执行器');
+  for (const [value, label] of [['claude', 'Claude Code'], ['codex', 'Codex']]) {
+    const button = el('button', null, label);
+    button.setAttribute('aria-pressed', String((t.agent || 'claude') === value));
+    button.onclick = () => {
+      if ((t.agent || 'claude') === value) return;
+      const original = saved.templates[renamed[name] || name];
+      const level = levelOf(t) || LEVELS[0];   // 认不出的（手改的 manual 之类）按只读带过去，宁紧勿松
+      setOr(t, 'agent', value === 'codex' ? 'codex' : undefined);
+      setOr(t, 'model', (original?.agent || 'claude') === value ? original?.model : undefined);
+      // 权限按档位带过去；另一边的字段删掉，免得 config.json 里留个不生效的「全放开」
+      if (value === 'codex') { delete t.permissionMode; setOr(t, 'codexSandbox', level.codex === 'read-only' ? undefined : level.codex); }
+      else { delete t.codexSandbox; delete t.codexEffort; t.permissionMode = level.claude; }
+      touch(); rerenderPane();
+    };
+    engine.appendChild(button);
+  }
+  b1.appendChild(fi('执行器', engine, codex ? '通过本机 Codex App Server 回答，模型留空时使用 Codex 自己的配置。' : undefined));
   const projHint = el('p', 'hint');
   const syncProj = () => {
-    projHint.textContent = '';
-    const ws = projData.workspaces.find((w) => w.path === t.project);
-    if (ws) { projHint.className = 'hint'; projHint.textContent = '工作区「' + ws.name + '」'; return; }
-    if (t.project) return;
-    projHint.className = 'hint bad';
-    projHint.append('还没选项目，用这个模板的会话不会跑。');
-    if (projData.workspaces.length) projHint.append('点右边「选择」挑一个工作区。');
-    else { const a = el('a', null, '去「环境」拉一个工作区'); a.href = '#settings/~env'; a.onclick = (e) => { e.preventDefault(); go(ENV); }; projHint.append(a); }
+    projHint.className = 'hint' + (t.project ? '' : ' bad');
+    projHint.textContent = t.project ? agentName(t) + ' 在这个目录里查代码' : '还没选项目，用这个模板的会话不会跑';
   };
   const proj = projPicker(t.project || '', (v) => { setOr(t, 'project', v); syncProj(); touch(); });
   syncProj();
-  const model = el('input'); model.value = t.model || ''; model.placeholder = '留空 = claude 默认'; model.setAttribute('list', 'modellist');
-  model.oninput = () => { setOr(t, 'model', model.value.trim()); touch(); };
-  const g = el('div', 'grid2');
-  g.append(fi('项目', proj, projHint), fi('模型', model));
-  b1.appendChild(g);
+  if (codex) {
+    b1.append(fi('项目', proj, projHint), codexModelFields(t.model || '', t.codexEffort || '', true, codexBusy || !codexData, (model, effort) => {
+      setOr(t, 'model', model); setOr(t, 'codexEffort', effort); touch();
+    }));
+    if (!codexData && !codexBusy && !codexError) queueMicrotask(() => loadCodex());
+    if (codexError) b1.append(el('p', 'warn', codexError), btn('重新连接', () => loadCodex()));
+  } else {
+    // 选档位：每个来源在「API」页说这一档在它那儿叫什么，换来源不用回来改。真要钉死某个模型才写全名
+    const CUSTOM = '\u0000custom';
+    const tierOf = (v) => ['', 'opus', 'sonnet', 'haiku'].includes(v || '') ? (v || '') : CUSTOM;
+    const ms = el('select'); ms.setAttribute('aria-label', '模型档位');
+    ms.append(new Option('默认（Claude Code 自己挑）', ''), new Option('opus · 强', 'opus'), new Option('sonnet · 中', 'sonnet'),
+      new Option('haiku · 快', 'haiku'), new Option('写完整模型名…', CUSTOM));
+    ms.value = tierOf(t.model);
+    const custom = el('input'); custom.placeholder = '比如 claude-opus-4-1'; custom.setAttribute('list', 'modellist'); custom.spellcheck = false;
+    custom.setAttribute('aria-label', '完整模型名');
+    custom.value = ms.value === CUSTOM ? t.model : ''; custom.hidden = ms.value !== CUSTOM;
+    ms.onchange = () => {
+      custom.hidden = ms.value !== CUSTOM;
+      setOr(t, 'model', ms.value === CUSTOM ? custom.value.trim() : ms.value);
+      if (ms.value === CUSTOM) custom.focus();
+      touch();
+    };
+    custom.oninput = () => { setOr(t, 'model', custom.value.trim()); touch(); };
+    const mh = el('p', 'hint', '档位在每个来源上叫什么，在 ');
+    mh.append(goLink('API', API), ' 里填。写完整模型名就原样发给每个来源。');
+    const g = el('div', 'grid2'); g.append(fi('项目', proj, projHint), fi('模型', [ms, custom], mh)); b1.appendChild(g);
+  }
 
-  const seg = el('div', 'seg2'); seg.setAttribute('role', 'group');
+  const seg = el('div', 'seg2'); seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', '权限');
   const permHint = el('p', 'hint');
-  const cur = t.permissionMode || 'auto';
-  const opts = PERM.some(([v]) => v === cur) ? PERM : [...PERM, [cur, cur, '手改 config.json 写的值']];
+  const eng = engineOf(t), cur = permission(t);
+  const opts = LEVELS.map((l) => [l[eng], l.label, l.tip[eng === 'codex' ? 1 : 0]]);
+  if (!levelOf(t)) opts.push([cur, cur, '手改 config.json 写的值']);
   const syncPerm = () => {
-    const m = t.permissionMode || 'auto';
+    const m = permission(t);
     for (const btn of seg.children) btn.setAttribute('aria-pressed', String(btn.dataset.v === m));
     permHint.textContent = (opts.find(([v]) => v === m) || [])[2] || '';
+    permHint.className = 'hint' + (levelOf(t) === LEVELS[2] ? ' bad' : '');
   };
   for (const [v, label] of opts) {
     const btn = el('button', null, label); btn.dataset.v = v; btn.type = 'button';
-    btn.onclick = () => { t.permissionMode = v; syncPerm(); touch(); };
+    btn.onclick = () => { t[codex ? 'codexSandbox' : 'permissionMode'] = v; if (codex && v === 'read-only') delete t.codexSandbox; syncPerm(); touch(); };
     seg.appendChild(btn);
   }
   syncPerm();
@@ -1898,7 +2288,7 @@ function paneTemplate(head, body, name) {
   body.appendChild(b1);
 
   // 怎么回
-  const b2 = blk('怎么回', 'Claude Code 的系统提示词，整段替换、不是追加。留空 = 不加任何系统提示词。');
+  const b2 = blk('怎么回', '模板的回复要求。留空时使用执行器自己的指令。');
   const ta = el('textarea', 'prose'); ta.rows = 9; ta.value = t.prompt || ''; ta.placeholder = '留空 = 不加系统提示词';
   ta.setAttribute('aria-label', '系统提示词');
   ta.oninput = () => { setOr(t, 'prompt', ta.value.trim()); touch(); };
@@ -1915,8 +2305,10 @@ function paneTemplate(head, body, name) {
     else { judgeStash[name] = t.judge; delete t.judge; }
     touch(); rerenderPane();
   }));
+  const jtg = el('p', 'hint'); jtg.id = 'judge-target'; jtg.hidden = true;
+  b3.appendChild(jtg);
   if (t.judge) {
-    b3.appendChild(el('p', 'hint', 'Claude Code 起来之前，先拿这段提示词调一次判定模型（不带工具，一两秒）：要回才交给它；不用回就算了；转给我 = 私聊你一条；叫停 = 掐掉这个会话里在跑的。输出格式是代码里定的，这里只写分类和例子。'));
+    b3.appendChild(el('p', 'hint', '先拿这段提示词直接调一次 API 网关上的快模型（API 来源 haiku 那档，不带工具，一两秒）：要回才交给它；不用回就算了；转给我 = 私聊你一条；叫停 = 掐掉这个会话里在跑的。输出格式是代码里定的，这里只写分类和例子。'));
     const jt = el('textarea', 'prose'); jt.rows = 11; jt.value = t.judge; jt.setAttribute('aria-label', '判定提示词');
     jt.oninput = () => { setOr(t, 'judge', jt.value.trim()); touch(); };
     const jf = el('button', 'link', '换成内置默认判定');
@@ -1924,79 +2316,55 @@ function paneTemplate(head, body, name) {
     const jh = el('p', 'hint'); jh.appendChild(jf);
     b3.append(jt, jh);
   } else {
-    b3.appendChild(el('p', 'hint', '关着：每条 @ 都直接交给 Claude Code。自己用的模板就这样。'));
+    b3.appendChild(el('p', 'hint', '关着：每条 @ 都直接交给所选执行器。'));
   }
   body.appendChild(b3);
 
   // 高级
   const adv = el('details', 'adv'); adv.open = advOpen;
   adv.ontoggle = () => { advOpen = adv.open; };
-  const set = [t.claudeSettings && 'CC settings', t.claudeArgs && '额外参数', t.self && '处理自己的消息'].filter(Boolean);
-  const sm = el('summary'); sm.append(el('span', null, '高级'), el('small', null, set.length ? '已设：' + set.join('、') : 'Claude Code settings、额外参数、自测'));
+  const set = [!codex && t.claudeSettings && 'CC settings', !codex && t.claudeArgs && '额外参数', t.self && '处理自己的消息'].filter(Boolean);
+  const sm = el('summary'); sm.append(el('span', null, '高级'), el('small', null, set.length ? '已设：' + set.join('、') : codex ? '自测' : 'Claude Code settings、额外参数、自测'));
   adv.appendChild(sm);
   const ab = el('div', 'advbody');
 
-  const url = el('input'); url.value = t.gateway?.baseUrl || ''; url.placeholder = '留空 = 默认网关';
-  const tk = el('input'); tk.type = 'password'; tk.autocomplete = 'off';
-  const clr = el('button', null, '清掉');
-  const test = el('button', null, '测一下');
-  const gwHint = el('p', 'hint');
-  const syncGw = () => {
-    const g = t.gateway;
-    tk.disabled = !g;
-    tk.placeholder = !g ? '先填地址' : g.token === '' ? '保存后清掉' : g.hasToken ? '已设置（留空 = 不改）' : '没设置';
-    clr.hidden = !(g && g.hasToken && g.token !== '');
-    const bad = g && !/^https?:\/\/\S+$/.test(g.baseUrl);
-    gwHint.className = bad ? 'hint bad' : 'hint';
-    gwHint.textContent = bad ? '地址要是 http(s)://… —— 不对的保存时会丢掉'
-      : 'Claude Code 和这个模板的判定都打这里（经 claude --settings，盖过 ~/.claude/settings.json）。token 当 Bearer 发，存在 config.json（0600），不会再显示。';
-  };
-  url.oninput = () => {
-    const v = url.value.trim();
-    if (!v) delete t.gateway;
-    else t.gateway = { ...(t.gateway || { hasToken: false, from: renamed[name] || name }), baseUrl: v };
-    syncGw(); touch();
-  };
-  tk.oninput = () => { if (!t.gateway) return; if (tk.value) t.gateway.token = tk.value; else delete t.gateway.token; touch(); };
-  clr.onclick = () => { t.gateway.token = ''; tk.value = ''; syncGw(); touch(); };
-  test.onclick = async () => {
-    gwHint.className = 'hint'; gwHint.textContent = '测试中…';
-    const g = t.gateway;
-    const d = await post('/api/gateway-test', { template: name, from: g?.from, baseUrl: g?.baseUrl || '', token: g?.token, model: draft.judgeModel });
-    gwHint.className = d.ok ? 'hint ok' : 'hint bad';
-    gwHint.textContent = (d.ok ? '✓ ' : '✗ ') + (d.detail || d.error || '') + (d.ms ? '（' + d.ms + 'ms，用判定模型测的）' : '');
-  };
-  syncGw();
-  const tkRow = el('div', 'inrow'); tkRow.append(tk, clr, test);
-  const g4 = el('div', 'grid2');
-  g4.append(fi('网关地址', url), fi('Token', tkRow));
-  const bgw = blk('模型网关', '留空 = 用默认网关：' + (cfg.defaultBaseUrl || '?'));
-  bgw.append(g4, gwHint);
-  body.appendChild(bgw);   // 不塞在「高级」里：打到哪是最该一眼看到的
-
-  const cs = el('textarea'); cs.rows = 5; cs.spellcheck = false;
-  cs.value = t.claudeSettings ? JSON.stringify(t.claudeSettings, null, 2) : '';
-  cs.placeholder = '{ "env": { "ANTHROPIC_MODEL": "xxx" } }';
-  const CS_HINT = '跟 ~/.claude/settings.json 一个格式，叠在它上面。换了网关、模型名对不上时，在 env 里改 ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL。';
-  const csHint = el('p', 'hint', CS_HINT);
-  cs.oninput = () => {
-    const v = cs.value.trim();
-    try {
-      if (!v) delete t.claudeSettings;
-      else {
-        const o = JSON.parse(v);
-        if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('要是一个 JSON 对象');
-        t.claudeSettings = o;
-      }
-      csHint.className = 'hint'; csHint.textContent = CS_HINT; touch();
-    } catch (e) { csHint.className = 'hint bad'; csHint.textContent = 'JSON 不对，这次没记上：' + e.message; }
-  };
-  ab.appendChild(fi('Claude Code settings（JSON）', cs, csHint));
-
-  const args = el('input'); args.value = (t.claudeArgs || []).join(' '); args.placeholder = '--max-turns 30';
-  args.oninput = () => { setOr(t, 'claudeArgs', args.value.split(/\s+/).filter(Boolean)); touch(); };
   const g5 = el('div', 'grid2');
-  g5.append(fi('额外参数', args), fi('自测', sw(t.self, '也处理我自己发的消息', (on) => { setOr(t, 'self', on || undefined); touch(); })));
+  if (!codex) {
+    // 打哪个 API：默认按「API」页那张表的顺序，出问题自动换；也可以固定用其中一个（固定了就不换）
+    const api = el('select');
+    api.append(new Option('按顺序用，出问题自动换下一个', ''), ...draft.apis.map((a) => new Option('固定用「' + a.name + '」', a.name)));
+    api.value = draft.apis.some((a) => a.name === t.api) ? t.api : '';
+    api.onchange = () => { if (api.value) t.api = api.value; else delete t.api; touch(); };
+    const bgw = blk('API', draft.apis.length ? '来源：' + draft.apis.map((a) => a.name).join(' → ') + '。'
+      : '还没配 API 来源，跟 claude 自己的配置走（' + (cfg.ownClaude || '?') + '）。');
+    bgw.querySelector('.hint').appendChild(goLink(draft.apis.length ? '加来源、排顺序、换 key' : '去配', API));
+    bgw.append(api);
+    body.appendChild(bgw);   // 不塞在「高级」里：打到哪是最该一眼看到的
+
+    const cs = el('textarea'); cs.rows = 5; cs.spellcheck = false;
+    cs.value = t.claudeSettings ? JSON.stringify(t.claudeSettings, null, 2) : '';
+    cs.placeholder = '{ "env": { "ANTHROPIC_MODEL": "xxx" } }';
+    const CS_HINT = '跟 ~/.claude/settings.json 一个格式，叠在它上面。换了网关、模型名对不上时，在 env 里改 ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL。';
+    const csHint = el('p', 'hint', CS_HINT);
+    cs.oninput = () => {
+      const v = cs.value.trim();
+      try {
+        if (!v) delete t.claudeSettings;
+        else {
+          const o = JSON.parse(v);
+          if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('要是一个 JSON 对象');
+          t.claudeSettings = o;
+        }
+        csHint.className = 'hint'; csHint.textContent = CS_HINT; touch();
+      } catch (e) { csHint.className = 'hint bad'; csHint.textContent = 'JSON 不对，这次没记上：' + e.message; }
+    };
+    ab.appendChild(fi('Claude Code settings（JSON）', cs, csHint));
+
+    const args = el('input'); args.value = (t.claudeArgs || []).join(' '); args.placeholder = '--max-turns 30';
+    args.oninput = () => { setOr(t, 'claudeArgs', args.value.split(/\s+/).filter(Boolean)); touch(); };
+    g5.appendChild(fi('额外参数', args));
+  }
+  g5.appendChild(fi('自测', sw(t.self, '也处理我自己发的消息', (on) => { setOr(t, 'self', on || undefined); touch(); })));
   ab.appendChild(g5);
   adv.appendChild(ab);
   body.appendChild(adv);
@@ -2020,85 +2388,108 @@ function paneTemplate(head, body, name) {
 }
 
 /**
- * 项目选择器：输入框（手填也行）+「选择」下拉：工作区（名字 + 路径）→ 选择文件夹…（只有桌面版）。
- * 下拉里按输入过滤；↑↓ 挑、回车选、Esc 收起（不冒泡，免得把整个设置页也关了）。
+ * 项目选择器：一张卡片（文件夹名 + 路径），点开是菜单：在 Finder 里选… → 用过的目录（自己选的能 × 掉）→ 粘贴路径。
+ * 一个都没用过、又弹得出系统框：点卡片直接弹 Finder，不绕菜单。
+ * 选过的目录登记成工作区，下次在哪儿选都在「用过的」里。↑↓ 在菜单里挪，Esc 收起（不冒泡，免得把整个设置页也关了）。
+ * empty = 没选时卡片上写什么（试跑那里是「跟模板走」）
  */
-function projPicker(value, onset) {
+const FOLDER_SVG = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h3.6l1.8 2H16a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+const IS_MAC = /Mac/.test(navigator.platform);
+const folderIcon = () => { const s = el('span', 'pick-ic'); s.innerHTML = FOLDER_SVG; return s; };
+const tilde = (p) => projData.home && (p === projData.home || p.startsWith(projData.home + '/')) ? '~' + p.slice(projData.home.length) : p;
+function projPicker(value, onset, empty = '还没选项目') {
   const w = el('div', 'pick');
-  const inp = el('input'); inp.value = value; inp.placeholder = '选一个工作区，或填目录路径'; inp.setAttribute('aria-label', '项目');
-  inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-expanded', 'false'); inp.autocomplete = 'off'; inp.spellcheck = false;
-  const tog = el('button', null, '选择'); tog.type = 'button'; tog.setAttribute('aria-haspopup', 'listbox');
-  w.append(inp, tog);
-  let menu = null, items = [], hl = -1, filter = '';
+  const card = el('button', 'pick-card'); card.type = 'button'; card.setAttribute('aria-haspopup', 'menu'); card.setAttribute('aria-expanded', 'false');
+  w.appendChild(card);
+  let menu = null;
 
-  // 选定的目录顺手登记成工作区：别的模板的下拉里、下次也能直接挑。登记过的、不存在的、重名的后端会拒，不影响这个模板用它
+  const paint = () => {
+    const ws = projData.workspaces.find((x) => x.path === value);
+    const txt = el('span', 'pick-txt');
+    if (value) txt.append(el('b', null, ws ? ws.name : projName(value)), el('small', null, tilde(value)));
+    else txt.append(el('span', 'pick-empty', empty));
+    card.replaceChildren(folderIcon(), txt, el('span', 'pick-chg', value ? '更换' : '选择'));
+    card.title = value;
+    card.classList.toggle('is-empty', !value);
+  };
+  // 选定的目录顺手登记成工作区。登记过的、不存在的、重名的后端会拒，不影响这里用它
   // ponytail: 跟已有工作区重名（比如两个都叫 order）就不登记了，要的话后端自动加后缀
   const register = async (p) => {
     if (!p || projData.workspaces.some((x) => x.path === p)) return;
     await post('/api/setup/workspace/add-existing', { path: p }).catch(() => {});
     await loadProjects();
+    paint();
   };
-  const set = (v) => { inp.value = v; onset(v.trim()); close(); register(v.trim()); };
+  const set = (v) => { value = v; paint(); onset(v); close(); register(v); };
+  const finder = async () => {
+    close();
+    const d = await post('/api/pick-folder', {}).catch(() => ({}));
+    if (d && d.path) set(d.path);
+    card.focus();
+  };
   const close = () => {
     if (!menu) return;
-    menu.remove(); menu = null; items = []; hl = -1;
-    inp.setAttribute('aria-expanded', 'false');
+    menu.remove(); menu = null;
+    card.setAttribute('aria-expanded', 'false');
     document.removeEventListener('mousedown', outside, true);
   };
   const outside = (e) => { if (!w.contains(e.target)) close(); };
-  const move = (d) => {
-    if (!items.length) return;
-    hl = (hl + d + items.length) % items.length;
-    items.forEach((b, i) => b.classList.toggle('is-hl', i === hl));
-    items[hl].scrollIntoView({ block: 'nearest' });
-  };
   const item = (cls, parts, pick) => {
-    const b = el('button', 'pick-it' + (cls ? ' ' + cls : '')); b.type = 'button'; b.setAttribute('role', 'option');
-    b.append(...parts);
-    b.onmousedown = (e) => e.preventDefault();   // 别让输入框失焦
-    b.onclick = pick;
-    items.push(b);
+    const b = el('button', 'pick-it' + (cls ? ' ' + cls : '')); b.type = 'button'; b.setAttribute('role', 'menuitem');
+    b.append(...parts); b.onclick = pick;
     return b;
   };
   const draw = () => {
-    menu.textContent = ''; items = []; hl = -1;
-    const kw = filter.trim().toLowerCase();
-    const hit = (s) => !kw || s.toLowerCase().includes(kw);
-    const cur = inp.value.trim();
-    const ws = projData.workspaces.filter((x) => hit(x.name + ' ' + x.path));
-    menu.appendChild(el('div', 'pick-h', '工作区'));
-    if (ws.length) for (const x of ws) menu.appendChild(item(x.path === cur ? 'is-cur' : '', [el('b', null, x.name), el('small', null, x.path)], () => set(x.path)));
-    else if (!projData.workspaces.length) {
-      const n = el('div', 'pick-none'); const a = el('a', null, '去「环境」拉一个'); a.href = '#settings/~env';
-      a.onclick = (e) => { e.preventDefault(); go(ENV); };
-      n.append('还没有工作区。', a); menu.appendChild(n);
-    } else menu.appendChild(el('div', 'pick-none', '没有匹配的工作区'));
-    if (projData.canPick) {
-      const act = el('div', 'pick-act');
-      act.appendChild(item('', ['选择文件夹…'], async () => {
-        close();
-        const d = await post('/api/pick-folder', {}).catch(() => ({}));
-        if (d && d.path) set(d.path);
-      }));
-      menu.appendChild(act);
+    menu.textContent = '';
+    if (projData.canPick) menu.appendChild(item('pick-finder', [folderIcon(), IS_MAC ? '在 Finder 里选文件夹…' : '选择文件夹…'], finder));
+    if (projData.workspaces.length) {
+      menu.appendChild(el('div', 'pick-h', '用过的'));
+      for (const x of projData.workspaces) {
+        const row = el('div', 'pick-row');
+        row.appendChild(item(x.path === value ? 'is-cur' : '', [el('b', null, x.name), el('small', null, tilde(x.path))], () => set(x.path)));
+        if (!x.managed) {
+          const del = el('button', 'pick-x', '×'); del.type = 'button';
+          del.title = '从列表里去掉（不删文件）'; del.setAttribute('aria-label', '从列表里去掉 ' + x.name);
+          del.onclick = async () => {
+            const d = await post('/api/setup/workspace/forget', { workspace: x.name }).catch((e) => ({ error: e.message }));
+            if (d && d.error) return alert(d.error);
+            await loadProjects();
+            if (menu) { draw(); menu.querySelector('button')?.focus(); }
+          };
+          row.appendChild(del);
+        }
+        menu.appendChild(row);
+      }
     }
+    // 手填：弹不出系统框（Linux / Windows 上的命令行版），或者路径刚好在剪贴板里
+    const path = el('input', 'pick-path'); path.placeholder = projData.canPick ? '或者粘贴一个目录路径，回车' : '粘贴一个目录路径，回车';
+    path.spellcheck = false; path.setAttribute('aria-label', '目录路径');
+    path.onkeydown = (e) => { if (e.key === 'Enter' && path.value.trim()) { e.preventDefault(); set(path.value.trim()); card.focus(); } };
+    menu.appendChild(path);
   };
   const open = () => {
-    if (menu) return;
-    filter = '';
-    menu = el('div', 'pick-menu'); menu.setAttribute('role', 'listbox');
+    menu = el('div', 'pick-menu'); menu.setAttribute('role', 'menu');
     w.appendChild(menu); draw();
-    inp.setAttribute('aria-expanded', 'true');
+    card.setAttribute('aria-expanded', 'true');
     document.addEventListener('mousedown', outside, true);
+    (menu.querySelector('.is-cur') || menu.querySelector('button, input')).focus();
   };
-  tog.onclick = () => { if (menu) close(); else { open(); inp.focus(); } };
-  inp.oninput = () => { onset(inp.value.trim()); if (menu) { filter = inp.value; draw(); } };
-  inp.onchange = () => register(inp.value.trim());   // 手填的：填完离开输入框才算定了，不是每敲一个字都登记
-  inp.onkeydown = (e) => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!menu) open(); move(e.key === 'ArrowDown' ? 1 : -1); }
-    else if (e.key === 'Enter' && menu && hl >= 0) { e.preventDefault(); items[hl].click(); }
-    else if (e.key === 'Escape' && menu) { e.stopPropagation(); close(); }
+  card.onclick = () => {
+    if (menu) close();
+    else if (projData.canPick && !projData.workspaces.length) finder();
+    else open();
   };
+  w.onkeydown = (e) => {
+    if (!menu) return;
+    if (e.key === 'Escape') { e.stopPropagation(); close(); card.focus(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const all = [...menu.querySelectorAll('button.pick-it, input')];
+      const i = all.indexOf(document.activeElement);
+      e.preventDefault();
+      all[(i + (e.key === 'ArrowDown' ? 1 : -1) + all.length) % all.length]?.focus();
+    }
+  };
+  paint();
   return w;
 }
 
@@ -2140,10 +2531,9 @@ async function post(url, body) {
   return r.json();
 }
 
-$('btn-cfg').onclick = () => { if (draft) closeSettings(); else openSettings(cc?.needsAuth ? CC : undefined); };
+$('btn-cfg').onclick = () => { if (draft) closeSettings(); else openSettings(cfg?.usesClaude && cc?.needsAuth ? CC : undefined); };
 // MCP 授权会过期：开着页面就隔半小时重查一次，过期了顶栏「设置」上出个点
-loadCC();
-setInterval(() => loadCC(true), 30 * 60_000);
+setInterval(() => { if (cfg?.usesClaude || pane === CC) loadCC(true); }, 30 * 60_000);
 $('btn-setup').onclick = () => leave('/setup');
 $('set-body').addEventListener('scroll', () => $('set-head').classList.toggle('is-scrolled', $('set-body').scrollTop > 0));
 $('set-revert').onclick = () => { draft = JSON.parse(JSON.stringify(saved)); renamed = {}; judgeStash = {}; renderSettings(); };
@@ -2152,7 +2542,7 @@ $('set-save').onclick = async () => {
   st.textContent = '保存中…'; st.className = 'note';
   $('set-save').disabled = true;
   pendingReload = true;   // 服务端推回新配置时重建 draft（可能比这个响应先到）
-  const d = await post('/api/config', draft).catch((e) => ({ error: e.message }));
+  const d = await post('/api/config', { ...draft, apis: draft.apis.map(({ hasToken, ...a }) => a) }).catch((e) => ({ error: e.message }));
   if (!d.ok) {
     pendingReload = false;
     st.textContent = '没保存上：' + d.error; st.className = 'warn';
@@ -2214,15 +2604,33 @@ function modeRow(chatId, mode, name) {
 }
 
 /* ---------- 试跑 ---------- */
+let runMode = 'user';
 let runResume = '';
-function openRun(job, resume) {
+let runProj = '';
+/** 单独试跑走 @我，从作业接着问沿用原入口。 */
+const runR = (id) => {
+  const t = $('r-tpl')?.value;
+  if (t && cfg.templates[t]) return { ...cfg.templates[t], template: t, apis: cfg.templates[t].api ? [cfg.templates[t].api] : cfg.apis.map((a) => a.name) };
+  return resolvedFor(runMode, id) || cfg[runMode].fallback;
+};
+/** 试跑的项目：默认是这个会话的模板指的那个，这里换只管这一次 */
+function setRunProj(v) {
+  runProj = v;
+  $('r-projbox').replaceChildren(projPicker(v, (x) => { runProj = x; echoRun(); }, '跟模板走'));
+}
+function openRun(job, resume, template) {
+  runMode = job?.mode === 'bot' ? 'bot' : 'user';
+  const ts = $('r-tpl');
+  ts.replaceChildren(new Option('跟会话走', ''), ...Object.keys(cfg.templates).map((n) => new Option(n, n)));
+  ts.value = template && cfg.templates[template] ? template : '';
+  ts.disabled = !!resume;   // 接着问得用原来那套，换不了
   const s = $('r-chat');
   s.textContent = '';
   const none = el('option'); none.value = ''; none.textContent = '（不指定，用默认配置）';
   s.appendChild(none);
-  for (const id of Object.keys(cfg.user.chats)) { const o = el('option'); o.value = id; o.textContent = chatName(id); s.appendChild(o); }
-  s.value = job && job.chatId in cfg.user.chats ? job.chatId : '';
-  $('r-proj').value = (job && job.project) || resolvedFor('user', s.value)?.project || '';
+  for (const id of new Set([...Object.keys(cfg[runMode].chats), ...(job?.chatId ? [job.chatId] : [])])) { const o = el('option'); o.value = id; o.textContent = chatName(id); s.appendChild(o); }
+  s.value = job?.chatId || '';
+  setRunProj((job && job.project) || runR(s.value)?.project || '');
   $('r-q').value = job ? job.q : '';
   runResume = resume || '';
   $('run-stat').textContent = '';
@@ -2235,25 +2643,28 @@ function closeRun() { $('run').hidden = true; $('scrim').hidden = true; }
 /** 跑之前先把"这句话会被怎么处理"摆出来 —— 路由、权限、提示词来源 */
 function echoRun() {
   const chatId = $('r-chat').value;
-  const r = resolvedFor('user', chatId);
-  const proj = $('r-proj').value.trim() || r?.project || '';
+  const r = runR(chatId);
+  const proj = runProj || r?.project || '';
   const e = $('r-echo');
   e.textContent = '';
   const line = (k, v, cls) => { const d = el('div'); d.append(el('b', null, k + '：'), el('span', cls, v)); return d; };
   e.append(
     line('项目', proj || '（空）', proj ? '' : 'no'),
-    line('权限', permLabel(r?.permissionMode)),
-    line('模型', r?.model || 'claude 默认'),
+    line('执行器', agentName(r)),
+    line('权限', permLabel(r)),
+    line('模型', r?.model || agentName(r) + ' 默认'),
+    ...(r?.agent === 'codex' ? [line('推理强度', r.codexEffort || '跟随 Codex 设置')] : []),
     line('判定', r?.judge ? '先判定要不要回' : '直接回'),
     line('提示词', r?.prompt ? `模板「${r.template}」自己那段` : `模板「${r?.template || '?'}」没设（不加系统提示词）`),
   );
-  if (!chatId) e.appendChild(el('div', 'note', '没指定会话：用默认模板，项目也由它决定 —— 底下那个项目框是手填的覆盖。'));
-  else if (!r) e.appendChild(el('div', 'note', '这个会话没开自动回 —— 试跑照样能跑，但真消息不会触发。'));
+  if ($('r-tpl').value) e.appendChild(el('div', 'note', '这次用模板「' + $('r-tpl').value + '」（保存过的那份），不改会话绑定。'));
+  else if (!chatId) e.appendChild(el('div', 'note', '没指定会话：用默认模板。上面换的项目只管这一次，不改模板。'));
+  else if (!onIn(runMode, chatId)) e.appendChild(el('div', 'note', '这个会话没开自动回 —— 试跑照样能跑，但真消息不会触发。'));
   const rb = $('r-resumebox');
   if (runResume) {
     rb.hidden = false;
     rb.textContent = '';
-    rb.append(document.createTextNode('在 session '), el('code', null, runResume), document.createTextNode(' 上接着问（--resume，项目要跟原来一致）。'));
+    rb.append(document.createTextNode('在 session '), el('code', null, runResume.replace(/^codex:/, '')), document.createTextNode(' 上接着问（项目和执行器要跟原来一致）。'));
     const x = el('button', 'ghost', '不续了');
     x.onclick = () => { runResume = ''; echoRun(); };
     rb.appendChild(x);
@@ -2261,14 +2672,12 @@ function echoRun() {
 }
 $('btn-run').onclick = () => openRun();
 $('run-close').onclick = closeRun;
-for (const id of ['r-chat', 'r-proj']) $(id).addEventListener('input', echoRun);
-$('r-chat').addEventListener('change', () => {
-  $('r-proj').value = resolvedFor('user', $('r-chat').value)?.project || '';
-  echoRun();
-});
+const runRefresh = () => { setRunProj(runR($('r-chat').value)?.project || ''); echoRun(); };
+$('r-chat').addEventListener('change', runRefresh);
+$('r-tpl').addEventListener('change', runRefresh);
 $('run-go').onclick = async () => {
   const body = {
-    chatId: $('r-chat').value, project: $('r-proj').value.trim(),
+    mode: runMode, chatId: $('r-chat').value, project: runProj, template: $('r-tpl').value || undefined,
     prompt: $('r-q').value.trim(), resume: runResume || undefined,
   };
   if (!body.prompt) { $('run-stat').textContent = '先写一句要问的话'; return; }
@@ -2277,17 +2686,19 @@ $('run-go').onclick = async () => {
   const d = await r.json();
   $('run-go').disabled = false;
   if (!r.ok) { $('run-stat').textContent = d.error || '起不来'; return; }
+  // 从设置里点的试跑：回主界面看进度（「试跑」按钮只在都保存了的时候能点，这里不会丢改动）
+  if (draft) closeSettings();
   grp = body.chatId || grp; sel = d.id; view = 'trace'; closeRun(); renderAll();
 };
 
 $('run-judge').onclick = async () => {
-  const body = { chatId: $('r-chat').value, prompt: $('r-q').value.trim(), p2p: isP2P($('r-chat').value) };
+  const body = { mode: runMode, chatId: $('r-chat').value, template: $('r-tpl').value || undefined, prompt: $('r-q').value.trim(), p2p: isP2P($('r-chat').value) };
   if (!body.prompt) { $('run-stat').textContent = '先写一句要问的话'; return; }
   $('run-judge').disabled = true; $('run-stat').textContent = '判定中…';
   const r = await fetch('/api/judge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   $('run-judge').disabled = false;
-  $('run-stat').textContent = !r.ok ? (d.error || '判定失败') : d.none ? '这个会话的模板没开「先判定」—— 会直接交给 Claude Code' : `${d.label}：${d.reason}`;
+  $('run-stat').textContent = !r.ok ? (d.error || '判定失败') : d.none ? '这个会话的模板没开「先判定」—— 会直接交给所选执行器' : `${d.label}：${d.reason}`;
 };
 
 /* ---------- 键盘 ---------- */

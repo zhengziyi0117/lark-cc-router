@@ -8,7 +8,7 @@ import { HOME_DIR } from './config.ts';
  * 外部命令在哪。从 Finder / 开始菜单起的桌面应用拿不到 shell 的 PATH，按名字起 claude 会 ENOENT；
  * Windows 上 npm 装出来的是 .cmd 包装脚本，不经 shell 的 spawn 根本找不到它。所以先翻已知位置，翻不到再交给 PATH。
  */
-export type Tool = 'claude' | 'lark-cli' | 'git';
+export type Tool = 'claude' | 'codex' | 'lark-cli' | 'git';
 
 export const WIN = process.platform === 'win32';
 

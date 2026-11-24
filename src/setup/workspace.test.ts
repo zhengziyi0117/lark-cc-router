@@ -173,6 +173,20 @@ test('add-existing：登记已有目录，不联网看一眼', async () => {
   assert.equal((await repos('mine2'))[0].path, join(home, 'mine2'));
 });
 
+test('forget：项目下拉里 × 掉选过的目录，只是不列了、文件不动；向导拉的不让 × ', async () => {
+  const dir = join(home, 'picked');
+  mkdirSync(dir);
+  await R('add-existing')({ path: dir }, ctx);
+  const { workspaceList } = await import('./workspace.ts');
+  assert.equal(workspaceList().find((w) => w.name === 'picked')?.managed, false);
+  assert.deepEqual(await R('forget')({ workspace: 'picked' }, ctx), { ok: true });
+  assert.equal(workspaceList().some((w) => w.name === 'picked'), false);
+  assert.ok(existsSync(dir));
+  await R('create')({ name: 'own' }, ctx);
+  assert.equal(workspaceList().find((w) => w.name === 'own')?.managed, true);
+  await assert.rejects(R('forget')({ workspace: 'own' }, ctx), /上手向导/);
+});
+
 test('老 git 的 submodule update 不认 --filter：退回完整 clone', { skip: process.platform === 'win32' }, async () => {
   const fake = join(home, 'old-git');
   writeFileSync(fake, '#!/bin/sh\ncase " $* " in *" --filter="*" submodule "*|*" submodule "*" --filter="*) echo "usage: git submodule [--quiet] [--cached]" >&2; exit 1;; esac\nexec git "$@"\n', { mode: 0o755 });

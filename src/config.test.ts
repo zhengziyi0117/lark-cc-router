@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
-import { loadConfig, saveConfig, sanitizeConfig, projectFor, promptFor, argsFor, resolveChat, claudeSettingsFor, migrate, isOn, scopeOf } from './config.ts';
+import { loadConfig, saveConfig, sanitizeConfig, projectFor, promptFor, argsFor, resolveChat, routingTemplates, claudeSettingsFor, migrate, isOn, scopeOf, apiEnv, sanitizeApis } from './config.ts';
 
 const ME = 'ou_me';
 /** 解会话要的是一个入口眼里的配置（chats / defaultTemplate 摊在顶上）。这些测试测的都是 @我 那份 */
@@ -57,7 +57,8 @@ test('迁移：判定 / 网关从按名字引用内联进模板，只读并进�
     },
     chats: { oc_1: {}, oc_2: { p2p: true, template: 'b' }, oc_3: { project: '/x', readonly: true } },
   });
-  assert.deepEqual(raw.templates.a, { judge: '判一下', gateway: { baseUrl: 'http://gw', token: 'tk' }, permissionMode: 'plan' }, '只读 = plan，盖过原来的权限');
+  assert.deepEqual(raw.templates.a, { judge: '判一下', api: 'a', permissionMode: 'plan' }, '只读 = plan，盖过原来的权限；自己的网关进来源表、固定用它');
+  assert.deepEqual(raw.apis, [{ name: 'a', kind: 'gateway', baseUrl: 'http://gw', token: 'tk' }]);
   assert.deepEqual(raw.templates.b, {}, '指向不存在的判定 / 网关就丢掉；readonly:false 就是没配');
   assert.deepEqual(raw.user.chats, { oc_1: '', oc_2: 'b', oc_3: '' }, 'p2p 不用记了，会话覆盖丢掉；顶层的会话绑定就是 @我 的');
   assert.ok(!('chats' in raw) && !('defaultTemplate' in raw));
@@ -131,8 +132,8 @@ test('没写模板就是「通用」', () => {
   const cfg = loadUser(tmp({ oc_a: '' }));
   assert.deepEqual(Object.keys(cfg.templates), ['通用']);
   assert.deepEqual(resolveChat(cfg, 'oc_a'), {
-    template: '通用', project: '~/proj', model: '', permissionMode: 'auto', prompt: '',
-    judge: '', gateway: undefined, claudeSettings: {}, claudeArgs: [], self: false,
+    template: '通用', agent: 'claude', codexSandbox: 'read-only', project: '~/proj', model: '', permissionMode: 'auto', prompt: '',
+    judge: '', apis: [], claudeSettings: {}, claudeArgs: [], self: false,
   });
 });
 
@@ -181,17 +182,19 @@ test('模板指定模型 → --model，盖过额外参数里写的；坏值不�
   assert.equal(s.templates.b.model, undefined, '带空格的不收，别把参数拼进 argv');
 });
 
-test('判定和网关都在模板里：网关的地址 / token 盖在 env 上；都没配就不传 --settings', () => {
+test('API 来源的地址 / 令牌 / 档位映射盖在 env 上，模板只管档位；都没配就不传 --settings', () => {
+  const gw = { name: 'gw', kind: 'gateway', baseUrl: 'http://gw.local', token: 'tk', models: { opus: 'claude-auto', haiku: 'fast' } } as const;
   const cfg = {
-    chats: { a: 'gw', b: 'plain', c: 'only' }, defaultTemplate: 'plain',
+    chats: { a: 'gw', b: 'plain', c: 'only' }, defaultTemplate: 'plain', apis: [],
     templates: {
-      gw: { gateway: { baseUrl: 'http://gw.local', token: 'tk' }, claudeSettings: { env: { ANTHROPIC_MODEL: 'm1', ANTHROPIC_BASE_URL: '会被盖掉' }, includeCoAuthoredBy: false } },
+      gw: { model: 'opus', claudeSettings: { env: { ANTHROPIC_MODEL: 'm1', ANTHROPIC_BASE_URL: '会被盖掉' }, includeCoAuthoredBy: false } },
       plain: { judge: '判一下' },
       only: { claudeSettings: { env: { ANTHROPIC_MODEL: 'm2' } } },
     },
   } as any;
-  assert.deepEqual(claudeSettingsFor(cfg, 'a'), {
-    env: { ANTHROPIC_MODEL: 'm1', ANTHROPIC_BASE_URL: 'http://gw.local', ANTHROPIC_AUTH_TOKEN: 'tk' }, includeCoAuthoredBy: false,
+  assert.deepEqual(claudeSettingsFor(cfg, 'a', gw), {
+    env: { ANTHROPIC_MODEL: 'm1', ANTHROPIC_BASE_URL: 'http://gw.local', ANTHROPIC_AUTH_TOKEN: 'tk',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-auto', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'fast' }, includeCoAuthoredBy: false,
   });
   assert.equal(claudeSettingsFor(cfg, 'b'), undefined, '什么都没配 = 完全跟 ~/.claude/settings.json 走');
   assert.deepEqual(claudeSettingsFor(cfg, 'c'), { env: { ANTHROPIC_MODEL: 'm2' } });
@@ -199,24 +202,39 @@ test('判定和网关都在模板里：网关的地址 / token 盖在 env 上；
   assert.equal(resolveChat(cfg, 'a').judge, '', '没写判定 = 直接回');
   const a = argsFor(cfg, 'a', '/x/s.json');
   assert.equal(a[a.indexOf('--settings') + 1], '/x/s.json');
+  assert.equal(a[a.indexOf('--model') + 1], 'opus', '--model 只放模板选的档位，各家叫什么走 env 里的映射');
   assert.equal(argsFor(cfg, 'b').includes('--settings'), false);
+
+  assert.deepEqual(apiEnv({ name: 's', kind: 'subscription', token: 'sk-ant-oat01-x', models: { sonnet: 'x' } }),
+    { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', ANTHROPIC_DEFAULT_SONNET_MODEL: 'x' });
+  assert.deepEqual(apiEnv({ name: 's', kind: 'subscription' }), {}, '订阅没填令牌 = 用 claude 自己登录的');
+  assert.deepEqual(apiEnv({ name: 'k', kind: 'gateway', baseUrl: 'https://api.anthropic.com', token: 'sk-ant-api03-x' }),
+    { ANTHROPIC_BASE_URL: 'https://api.anthropic.com', ANTHROPIC_API_KEY: 'sk-ant-api03-x' }, '官方 key 走 x-api-key，不能当 Bearer 发');
 });
 
-test('网关过 sanitize：地址要是 http(s)；token 没传沿用已存的（模板改名按 from 找回），传空串才清', () => {
-  const cur = { user: { on: true, chats: {}, defaultTemplate: '旧名' }, bot: { on: false, chats: {}, defaultTemplate: '旧名' }, pollMs: 60_000, maxJobs: 3, judgeModel: 'm',
-    templates: { 旧名: { gateway: { baseUrl: 'http://a', token: 'secret' } }, 清掉: { gateway: { baseUrl: 'http://c', token: 't' } } } } as any;
-  const s = sanitizeConfig({
-    templates: {
-      新名: { gateway: { baseUrl: ' http://a/ ', from: '旧名', hasToken: true } },
-      清掉: { gateway: { baseUrl: 'http://c', token: '' } },
-      坏的: { gateway: { baseUrl: 'ftp://x' }, claudeSettings: [1] },
-      带判定: { judge: '  判一下  ', claudeSettings: { env: { X: '1' } } },
-    },
-  }, cur);
-  assert.deepEqual(s.templates.新名.gateway, { baseUrl: 'http://a', token: 'secret' });
-  assert.deepEqual(s.templates.清掉.gateway, { baseUrl: 'http://c' });
-  assert.deepEqual(s.templates.坏的, {}, '坏地址不收，不是对象的 settings 不收');
+test('API 来源表过 sanitize：令牌没传沿用已存的（改名按 from 找回），传空串才清；坏的整条不收；模板只能固定到表里有的', () => {
+  const cur = [{ name: '旧名', kind: 'gateway', baseUrl: 'http://a', token: 'secret' }, { name: '清掉', kind: 'gateway', baseUrl: 'http://c', token: 't' }] as any;
+  const { apis, errors } = sanitizeApis([
+    { name: '新名', kind: 'gateway', baseUrl: ' http://a/ ', from: '旧名' },
+    { name: '清掉', kind: 'gateway', baseUrl: 'http://c', token: '' },
+    { name: '坏的', kind: 'gateway', baseUrl: 'ftp://x' },
+    { name: '订阅', kind: 'subscription', models: { opus: ' claude-opus-4-1 ', sonnet: '' }, baseUrl: 'http://忽略' },
+    { name: '订阅', kind: 'subscription' },
+    { name: '坏模型', kind: 'subscription', models: { haiku: 'a b' } },
+  ], cur);
+  assert.deepEqual(apis, [
+    { name: '新名', kind: 'gateway', baseUrl: 'http://a', token: 'secret' },
+    { name: '清掉', kind: 'gateway', baseUrl: 'http://c' },
+    { name: '订阅', kind: 'subscription', models: { opus: 'claude-opus-4-1' } },
+  ]);
+  assert.equal(errors.length, 3, '坏地址、重名、坏模型名各报一条');
+
+  const base = { user: { on: true, chats: {}, defaultTemplate: 'a' }, bot: { on: false, chats: {}, defaultTemplate: 'a' }, pollMs: 60_000, maxJobs: 3, templates: {}, apis };
+  const s = sanitizeConfig({ templates: { a: { api: '订阅' }, b: { api: '没这个' }, 带判定: { judge: '  判一下  ', claudeSettings: { env: { X: '1' } } }, 坏的: { claudeSettings: [1] } } }, base as any);
+  assert.deepEqual(s.templates.a, { api: '订阅' });
+  assert.deepEqual(s.templates.b, {}, '固定到不存在的来源 = 不固定');
   assert.deepEqual(s.templates.带判定, { judge: '判一下', claudeSettings: { env: { X: '1' } } });
+  assert.deepEqual(s.templates.坏的, {}, '不是对象的 settings 不收');
 });
 
 test('模板的额外参数会带上', () => {
@@ -272,6 +290,25 @@ test('一个模板都不剩就兜一个空的 —— 不然会话没东西可绑
   assert.equal(next.user.defaultTemplate, '通用');
 });
 
+test('Codex 模板能从 Web 保存并重新加载，未知沙箱值落回只读', () => {
+  const path = tmp({ oc_a: '' });
+  const cfg = loadConfig(path);
+  const next = sanitizeConfig({ templates: { 通用: { agent: 'codex', codexSandbox: 'workspace-write', model: 'team/gpt-5', codexEffort: 'high' },
+    错误: { agent: 'codex', codexSandbox: 'yolo' }, 全放开: { agent: 'codex', codexSandbox: 'danger-full-access' } } }, cfg);
+  saveConfig(next, path);
+  const r = resolveChat(loadUser(path), 'oc_a');
+  assert.deepEqual([r.agent, r.codexSandbox, r.model, r.codexEffort], ['codex', 'workspace-write', 'team/gpt-5', 'high']);
+  assert.deepEqual(next.templates.错误, { agent: 'codex' });
+  assert.equal(next.templates.全放开.codexSandbox, 'danger-full-access', '三档权限的「全放开」：显式选了才有');
+});
+
+test('只绑定 Codex 的白名单用不到 Claude，打开所有群时才需要默认模板的执行器', () => {
+  const cfg = loadConfig(tmp({ oc_a: '排障' }, { templates: { 通用: {}, 排障: { agent: 'codex' } }, defaultTemplate: '通用' }));
+  assert.deepEqual(routingTemplates(cfg), [cfg.templates.排障]);
+  cfg.user.allGroups = true;
+  assert.deepEqual(routingTemplates(cfg), [cfg.templates.排障, cfg.templates.通用]);
+});
+
 test('DEFAULTS 不能被改脏：连着 load 两次，第二次不能带上第一次的污染', () => {
   const empty = join(mkdtempSync(join(tmpdir(), 'lcr-')), 'config.json');
   writeFileSync(empty, JSON.stringify({ me: ME }));           // 连 templates 都没有
@@ -281,13 +318,40 @@ test('DEFAULTS 不能被改脏：连着 load 两次，第二次不能带上第�
   assert.equal(b.templates['通用'].self, undefined, '第二次读到的是干净的默认值');
 });
 
-test('默认网关：模板没配网关就用顶层 gateway，模板自己配了以它为准', () => {
-  const cfg = {
-    chats: { a: 'own', b: '' }, defaultTemplate: 'none', gateway: { baseUrl: 'http://def', token: 'd' },
-    templates: { own: { gateway: { baseUrl: 'http://own' } }, none: {} },
-  } as any;
-  assert.equal(resolveChat(cfg, 'a').gateway?.baseUrl, 'http://own');
-  assert.deepEqual(claudeSettingsFor(cfg, 'b'), { env: { ANTHROPIC_BASE_URL: 'http://def', ANTHROPIC_AUTH_TOKEN: 'd' } });
+test('API 来源：模板没固定就是整张表（按顺序）；固定了只用那一个；老的顶层 gateway 迁成表里第一个', () => {
+  const apis = [{ name: '默认网关', kind: 'gateway', baseUrl: 'http://def', token: 'd' }, { name: '订阅', kind: 'subscription' }];
+  const cfg = { chats: { a: 'own', b: '' }, defaultTemplate: 'none', apis, templates: { own: { api: '订阅' }, none: {} } } as any;
+  assert.deepEqual(resolveChat(cfg, 'a').apis.map((a) => a.name), ['订阅']);
+  assert.deepEqual(resolveChat(cfg, 'b').apis.map((a) => a.name), ['默认网关', '订阅']);
+
+  const raw = migrate({ gateway: { baseUrl: 'http://def', token: 'd' }, templates: { own: { gateway: { baseUrl: 'http://own' } }, same: { gateway: { baseUrl: 'http://def', token: 'd' } }, none: {} } });
+  assert.deepEqual(raw.apis, [
+    { name: '默认网关', kind: 'gateway', baseUrl: 'http://def', token: 'd' },
+    { name: 'own', kind: 'gateway', baseUrl: 'http://own' },
+  ], '一样的网关不重复进表');
+  assert.deepEqual(raw.templates, { own: { api: 'own' }, same: { api: '默认网关' }, none: {} });
+  assert.ok(!('gateway' in raw));
+  assert.deepEqual(migrate(structuredClone(raw)), raw, '幂等');
+});
+
+test('迁移：来源的一个模型 → 档位映射；haiku 那档接过以前的全局判定模型；填的是档位别名的丢掉', () => {
+  const raw = migrate({ judgeModel: 'claude-auto', templates: {}, apis: [
+    { name: 'gw', kind: 'gateway', baseUrl: 'http://gw', model: 'claude-auto' },
+    { name: 'sub', kind: 'subscription', model: 'opus' },
+    { name: 'sub2', kind: 'subscription', model: 'claude-opus-4-1' },
+  ] });
+  assert.deepEqual(raw.apis, [
+    { name: 'gw', kind: 'gateway', baseUrl: 'http://gw', models: { opus: 'claude-auto', sonnet: 'claude-auto', haiku: 'claude-auto' } },
+    { name: 'sub', kind: 'subscription' },
+    { name: 'sub2', kind: 'subscription', models: { opus: 'claude-opus-4-1', sonnet: 'claude-opus-4-1' } },
+  ]);
+  assert.ok(!('judgeModel' in raw));
+  assert.deepEqual(migrate(structuredClone(raw)), raw, '幂等');
+  const def = migrate({ judgeModel: 'claude-haiku-4-5', apis: [{ name: 'gw', kind: 'gateway', baseUrl: 'http://gw', model: 'x' }] });
+  assert.deepEqual(def.apis[0].models, { opus: 'x', sonnet: 'x' }, '判定模型还是默认的：haiku 那档不用映射');
+  const bare = migrate({ judgeModel: 'claude-auto[1M]', apis: [{ name: 'gw', kind: 'gateway', baseUrl: 'http://gw' }, { name: 's', kind: 'subscription' }] });
+  assert.deepEqual(bare.apis, [{ name: 'gw', kind: 'gateway', baseUrl: 'http://gw', models: { haiku: 'claude-auto[1M]' } }, { name: 's', kind: 'subscription' }],
+    '网关没配模型也接过判定模型：以前判定对每个网关都用它');
 });
 
 test('两个入口：老格式的会话绑定归 @我；@机器人 默认关；各自的默认模板落不到不存在的模板上', () => {
