@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { authUrl, front, mcpState, parseMcpList, routes, searchAvailable, skillsIn, terminalScript, why } from './auth.ts';
+import { authUrl, front, mcpState, parseMcpList, routes, searchAvailable, skillsIn, syncableSettings, terminalScript, why } from './auth.ts';
 
 /** 真机上 `claude mcp list` 的样子（插件的 + claude.ai 连接器 + 几种状态，Windows 是 \r\n） */
 const SAMPLE = [
@@ -179,4 +179,12 @@ esac
   } finally {
     if (prev === undefined) delete process.env.LCR_LARK_CLI; else process.env.LCR_LARK_CLI = prev;
   }
+});
+
+test('从本机同步设置：模型、API、登录相关的不搬，插件那两项留给插件同步', () => {
+  const mine = { model: 'opus', effortLevel: 'high', modelSettings: {}, apiKeyHelper: 'x', enabledPlugins: { a: true }, extraKnownMarketplaces: {},
+    hooks: { Stop: [] }, permissions: { allow: ['Bash(ls)'] },
+    env: { ANTHROPIC_BASE_URL: 'u', ANTHROPIC_AUTH_TOKEN: 't', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'h', CLAUDE_CODE_OAUTH_TOKEN: 'o', HTTPS_PROXY: 'p' } };
+  assert.deepEqual(syncableSettings(mine), { hooks: { Stop: [] }, permissions: { allow: ['Bash(ls)'] }, env: { HTTPS_PROXY: 'p' } });
+  assert.deepEqual(syncableSettings({ model: 'x', env: { ANTHROPIC_MODEL: 'y' } }), {}, 'env 剩空就整个不带');
 });

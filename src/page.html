@@ -491,6 +491,10 @@ button.link:hover{text-decoration:underline;background:none}
 .ccst.running{background:var(--skip-w);color:var(--skip)}
 .ccgrp{margin:16px 0 0;font-size:12px;font-weight:600;color:var(--ink-3)}
 .ccgrp+.cclist{margin-top:4px}
+.ccsync{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--line);cursor:pointer}
+.ccsync input{flex:none;width:auto;margin-top:3px}
+.ccsync>div{flex:1;min-width:0}
+.ccsync small{display:block;color:var(--ink-3);font-size:12px;margin-top:2px}
 .ccadd{margin-top:14px}
 /* 可装的插件：目录里几千个，搜出来的放进自己的滚动框，别把下面的 Skill / 市场挤到底 */
 .ccavail{max-height:340px;overflow:auto;margin-top:8px;padding:0 12px;border:1px solid var(--line);border-radius:var(--rs);background:var(--bg)}
@@ -1280,7 +1284,7 @@ es.onmessage = (e) => {
     if (m.section !== 'plugin') return;
     // 插件 / MCP 的进度（向导和设置共用这一路）：页头显示最新一条，结束了重拉状态
     ccSay(m.done ? (m.ok ? '✓ ' : '✗ ') + m.msg : m.msg, m.done && !m.ok);
-    if (m.done) { loadCC(); if (ccAvail !== null) searchAvail(); }
+    if (m.done) { loadCC(); if (ccAvail !== null) searchAvail(); if (ccSync?.available) loadSync(); }
   } else if (m.type === 'ev') {
     const j = jobs.get(m.id);
     if (!j) return;
@@ -1425,7 +1429,7 @@ function openSettings(at) {
   renamed = {}; judgeStash = {};
   if (at !== undefined) pane = at;
   if (!isSent(pane) && !draft.templates[pane]) pane = draft.user.defaultTemplate;
-  if (pane === CC && first) { loadCC(true); loadApiHealth(); }   // 配置推送也会走到这里重建 draft，别每次都让服务端重扫
+  if (pane === CC && first) { loadCC(true); loadApiHealth(); loadSync(); }   // 配置推送也会走到这里重建 draft，别每次都让服务端重扫
   if (first) loadSetup();
   if (pane === CODEX && first) loadCodex();
   ensureModelList();
@@ -1548,7 +1552,7 @@ function navItem(key, label, sub, dirty) {
 }
 /** 设置里跳到某页（导航、页面里的「去 @我 页」之类的链接都走这里） */
 function go(key) {
-  if (key === CC && pane !== CC) { loadCC(true); loadApiHealth(); }
+  if (key === CC && pane !== CC) { loadCC(true); loadApiHealth(); loadSync(); }
   if (key === CODEX && pane !== CODEX) loadCodex();
   pane = key; renderSettings(); $('set-body').scrollTop = 0;
 }
@@ -1847,6 +1851,14 @@ function apiRow(a, i) {
  */
 let cc = null;                  // GET /api/setup/cc；null = 还没拿到
 let ccMsg = null;               // 最近一条进度 / 报错 { text, bad }，显示在页头
+let ccSync = null, syncPick = null;   // 从本机同步：GET /api/setup/cc/sync 的结果 / 勾了哪几项（第一次按「差多少」默认勾）
+async function loadSync() {
+  const d = await fetch('/api/setup/cc/sync').then((r) => r.json()).catch(() => null);
+  if (!d) return;
+  ccSync = d;
+  if (d.items && (!syncPick || !d.busy)) syncPick = Object.fromEntries(d.items.map((x) => [x.key, x.todo > 0]));
+  if (draft) ccRender();
+}
 const ccLogin = {};             // MCP 全名 → 刚点授权的结果 { url } | { terminal } | { error } | { wait }
 let ccAvail = null, ccQ = '', ccQT = 0, ccSeq = 0;   // 可装的插件：结果 / 搜索词 / 防抖 / 只认最后一次
 let ccPoll = 0;
@@ -1995,6 +2007,30 @@ function paneCodex(head, body) {
   }
 }
 
+/** 桌面版：把自己终端里那份 ~/.claude 的配置搬过来。勾哪几项自己选，模型和 API 不搬 */
+function syncBlock() {
+  const b = blk('从本机同步', '把你自己终端里 Claude Code（~/.claude）的配置搬过来：同名的以本机为准，这边多出来的不删。模型和 API 不搬，在上面「API 来源」里配。');
+  if (ccSync.error) b.appendChild(el('p', 'hint bad', ccSync.error));
+  const busy = !!ccSync.busy;
+  for (const it of ccSync.items) {
+    const l = el('label', 'ccsync');
+    const c = el('input'); c.type = 'checkbox'; c.checked = !!syncPick?.[it.key]; c.disabled = busy;
+    c.onchange = () => { syncPick[it.key] = c.checked; go.disabled = busy || !Object.values(syncPick).some(Boolean); };
+    const t = el('div'); t.append(el('b', null, it.label + (it.todo ? '' : ' · 已经一样')), el('small', null, it.detail));
+    l.append(c, t);
+    b.appendChild(l);
+  }
+  const go = btn(busy ? ccSync.busy : '同步选中的', async () => {
+    go.disabled = true; go.textContent = '同步中…';
+    const d = await ccDo('/api/setup/cc/sync', { items: Object.keys(syncPick).filter((k) => syncPick[k]) }, '开始同步…');
+    if (!d.error && d.ok !== false) ccSync.busy = '同步中…';
+  }, 'primary');
+  go.disabled = busy || !Object.values(syncPick || {}).some(Boolean);
+  go.style.marginTop = '10px';
+  b.appendChild(go);
+  return b;
+}
+
 function paneCC(head, body) {
   head.appendChild(el('h2', null, 'Claude Code'));
   const st = el('span', ccMsg?.bad ? 'warn' : 'pmeta', ccMsg?.text || ''); st.id = 'cc-stat';
@@ -2009,9 +2045,10 @@ function paneCC(head, body) {
 
   body.appendChild(apiBlock());
   const intro = el('p', 'hint', '下面插件、MCP、skill 的操作点了就生效，不用保存；新的 @ 就用上。');
-  if (cc?.configDir) intro.append(el('br'), '配置在 ' + cc.configDir + '（跟你自己终端里的 Claude Code 分开）');
+  if (cc?.configDir) intro.append(el('br'), '配置在 ' + cc.configDir + (ccSync?.available ? '（跟你自己终端里的 Claude Code 分开）' : ''));
   intro.style.marginTop = '22px';
   body.appendChild(intro);
+  if (ccSync?.available) body.appendChild(syncBlock());
   if (!cc) { body.appendChild(el('p', 'note', '加载中…')); return; }
   if (cc.error) body.appendChild(el('p', 'hint bad', cc.error));
   if (cc.needsAuth) body.appendChild(el('div', 'ccbanner', cc.needsAuth + ' 个 MCP 要授权（多半是过期了）：点「授权」，浏览器里同意就好。'));

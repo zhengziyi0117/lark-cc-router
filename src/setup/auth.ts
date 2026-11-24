@@ -676,6 +676,139 @@ const mcpLogout: Handler = async (body) => {
   return r.code === 0 ? { ok: true } : { ok: false, error: why(r) };
 };
 
+/* ---------- 从本机 Claude Code 同步（桌面版） ---------- */
+
+/**
+ * 桌面版的 claude 配置是隔离的（desktop/main.js 设的 CLAUDE_CONFIG_DIR）。这里把自己终端里那份 ~/.claude 搬过来：
+ * 同名的以本机为准，这边多出来的不删。模型、API、登录不搬 —— 那些归「API 来源」管。
+ * 插件和 MCP 走 claude 自己的命令装（缓存路径它自己管）；MCP 的授权在钥匙串里搬不了，过来重新点「授权」
+ */
+const MINE = join(homedir(), '.claude');
+const mineEnv = () => { const { CLAUDE_CONFIG_DIR: _, ...e } = process.env; return e; };
+const isolated = () => resolve(configDir()) !== resolve(MINE);
+/** settings.json 里跟模型、API、登录有关的不搬；插件那两项由「插件」那步用 claude 命令装 */
+const NOT_SYNCED = new Set(['model', 'effortLevel', 'modelSettings', 'availableModels', 'alwaysThinkingEnabled', 'apiKeyHelper',
+  'awsAuthRefresh', 'awsCredentialExport', 'forceLoginMethod', 'forceLoginOrgUUID', 'enabledPlugins', 'extraKnownMarketplaces']);
+const MODEL_ENV = /^(ANTHROPIC_|CLAUDE_CODE_(OAUTH_TOKEN|USE_|SUBAGENT_MODEL)|AWS_|VERTEX_|CLOUD_ML_)/;
+const SYNC_DIRS = ['skills', 'agents', 'commands'];
+const readJson = (f: string): Record<string, any> => { try { return JSON.parse(readFileSync(f, 'utf8')) ?? {}; } catch { return {}; } };
+const lsNames = (d: string) => { try { return readdirSync(d).filter((n) => !n.startsWith('.')); } catch { return []; } };
+
+/** settings.json 里要搬的部分 */
+export function syncableSettings(s: Record<string, any>): Record<string, any> {
+  const out = Object.fromEntries(Object.entries(s).filter(([k]) => !NOT_SYNCED.has(k)));
+  const env = Object.fromEntries(Object.entries(s.env ?? {}).filter(([k]) => !MODEL_ENV.test(k)));
+  if (Object.keys(env).length) out.env = env; else delete out.env;
+  return out;
+}
+
+/** 本机那份：用户级插件（id → 启用没）、插件市场（名字 → add 用的地址）、用户级 MCP */
+async function mineState() {
+  const env = mineEnv();
+  const [pl, mk] = await Promise.all([run(bin('claude'), ['plugin', 'list', '--json'], { env }), run(bin('claude'), ['plugin', 'marketplace', 'list', '--json'], { env })]);
+  const parse = (r: Run) => { try { return r.code === 0 ? JSON.parse(r.out) : undefined; } catch { return undefined; } };
+  const list = parse(pl), mks = parse(mk);
+  const all: any[] = Array.isArray(list) ? list : list?.installed ?? [];
+  return {
+    error: !list ? `读不到本机的插件列表：${why(pl)}` : '',
+    plugins: new Map(all.filter((p) => p.scope === 'user').map((p) => [String(p.id), p.enabled !== false])),
+    otherScope: all.filter((p) => p.scope !== 'user').length,
+    markets: new Map<string, string>((Array.isArray(mks) ? mks : []).map((m: any) => [String(m.name), String(m.repo ?? m.url ?? m.path ?? '')])),
+    mcp: (readJson(join(homedir(), '.claude.json')).mcpServers ?? {}) as Record<string, unknown>,
+  };
+}
+
+const names = (xs: string[]) => xs.length > 6 ? xs.slice(0, 6).join('、') + ` 等 ${xs.length} 个` : xs.join('、');
+
+/** 每一项：本机有什么、这边差多少。todo = 0 就是已经一样 */
+const ccSyncPlan: Handler = async () => {
+  if (!isolated()) return { available: false };
+  if (!installed || !mcp) await (scanning ?? refresh());
+  const m = await mineState();
+  const have = new Set((installed ?? []).map((p) => p.id));
+  const pMiss = [...m.plugins.keys()].filter((id) => !have.has(id));
+  const pDiff = (installed ?? []).filter((p) => m.plugins.has(p.id) && m.plugins.get(p.id) !== (p.enabled !== false)).length;
+  const mMiss = Object.keys(m.mcp).filter((n) => !mcp?.has(n));
+  const fMiss = SYNC_DIRS.flatMap((d) => { const there = new Set(lsNames(join(configDir(), d))); return lsNames(join(MINE, d)).filter((n) => !there.has(n)).map((n) => `${d}/${n}`); });
+  const fAll = SYNC_DIRS.reduce((n, d) => n + lsNames(join(MINE, d)).length, 0);
+  const memMine = existsSync(join(MINE, 'CLAUDE.md')) ? readFileSync(join(MINE, 'CLAUDE.md'), 'utf8') : undefined;
+  const memHere = existsSync(join(configDir(), 'CLAUDE.md')) ? readFileSync(join(configDir(), 'CLAUDE.md'), 'utf8') : undefined;
+  const sMine = syncableSettings(readJson(join(MINE, 'settings.json')));
+  const sHere = readJson(join(configDir(), 'settings.json'));
+  const sDiff = Object.keys(sMine).filter((k) => k === 'env' ? Object.entries(sMine.env).some(([a, v]) => sHere.env?.[a] !== v) : JSON.stringify(sMine[k]) !== JSON.stringify(sHere[k]));
+  return {
+    available: true, busy: ops.get('sync') ?? '', error: m.error,
+    items: [
+      { key: 'plugins', label: '插件和插件市场', todo: pMiss.length + pDiff,
+        detail: `本机 ${m.plugins.size} 个用户级插件` + (pMiss.length ? `，这边少 ${names(pMiss.map(short))}` : '，这边都有') + (pDiff ? `，${pDiff} 个启用状态不一样` : '')
+          + (m.otherScope ? `。项目级等其它范围的 ${m.otherScope} 个不搬` : '') },
+      { key: 'mcp', label: '用户级 MCP', todo: mMiss.length,
+        detail: Object.keys(m.mcp).length ? `本机 ${Object.keys(m.mcp).length} 个` + (mMiss.length ? `，这边少 ${names(mMiss)}。授权搬不过来，同步完要重新点「授权」` : '，这边都有') : '本机没有（插件带的 MCP 跟着插件走）' },
+      { key: 'files', label: 'skills、子代理、自定义命令', todo: fMiss.length,
+        detail: fAll ? `本机 ${fAll} 个` + (fMiss.length ? `，这边少 ${names(fMiss)}` : '，这边都有') + '。同名的会被本机的盖掉' : '本机没有' },
+      { key: 'memory', label: 'CLAUDE.md', todo: memMine !== undefined && memMine !== memHere ? 1 : 0,
+        detail: memMine === undefined ? '本机没有' : memMine === memHere ? '一样' : memHere === undefined ? '这边还没有' : '两边不一样，会用本机的盖掉这边的' },
+      { key: 'settings', label: '其它设置', todo: sDiff.length,
+        detail: Object.keys(sMine).length ? `本机有 ${Object.keys(sMine).join('、')}` + (sDiff.length ? `，要改 ${sDiff.join('、')}` : '，一样') + (sMine.hooks ? '。hooks 搬过来后，飞书来的每次运行也会触发' : '') + '。模型、API、登录相关的不搬' : '除了模型和 API，本机没配别的' },
+    ],
+  };
+};
+
+/** 按勾的项搬。一项失败不拦后面的，最后一起报 */
+async function doSync(items: Set<string>): Promise<string[]> {
+  const bad: string[] = [];
+  const claude = async (args: string[], what: string) => {
+    progress('plugin', what + '…');
+    const r = await run(bin('claude'), args, { env: { ...process.env, ...gitEnv() }, timeout: 300_000 });
+    if (r.code !== 0) bad.push(`${what}：${why(r)}`);
+    return r.code === 0;
+  };
+  const m = items.has('plugins') || items.has('mcp') ? await mineState() : undefined;
+  if (m && items.has('plugins')) {
+    if (m.error) bad.push(m.error);
+    const known = new Set(markets.map((x) => x.name));
+    for (const [name, src] of m.markets) if (!known.has(name) && src) await claude(['plugin', 'marketplace', 'add', src], `添加插件市场 ${name}`);
+    const have = new Map((installed ?? []).map((p) => [p.id, p.enabled !== false]));
+    for (const [id, on] of m.plugins) {
+      if (!have.has(id) && !(await claude(['plugin', 'install', id], `安装 ${short(id)}`))) continue;
+      if ((have.get(id) ?? true) !== on) await claude(['plugin', on ? 'enable' : 'disable', id], `${on ? '启用' : '停用'} ${short(id)}`);
+    }
+  }
+  if (m && items.has('mcp')) {
+    for (const [name, def] of Object.entries(m.mcp)) {
+      if (mcp?.has(name)) continue;
+      if (!NAME.test(name)) { bad.push(`MCP ${name}：名字不认识，跳过`); continue; }
+      await claude(['mcp', 'add-json', '-s', 'user', name, JSON.stringify(def)], `添加 MCP ${name}`);
+    }
+  }
+  try {
+    mkdirSync(configDir(), { recursive: true });
+    if (items.has('files')) for (const d of SYNC_DIRS) if (existsSync(join(MINE, d))) cpSync(join(MINE, d), join(configDir(), d), { recursive: true, force: true });
+    if (items.has('memory') && existsSync(join(MINE, 'CLAUDE.md'))) cpSync(join(MINE, 'CLAUDE.md'), join(configDir(), 'CLAUDE.md'));
+    if (items.has('settings')) {
+      const mine = syncableSettings(readJson(join(MINE, 'settings.json')));
+      const file = join(configDir(), 'settings.json'), here = readJson(file);
+      const next = { ...here, ...mine, ...(mine.env && { env: { ...here.env, ...mine.env } }) };
+      writeFileSync(file, JSON.stringify(next, null, 2) + '\n');
+    }
+  } catch (e: any) { bad.push(`拷文件：${e.message}`); }
+  return bad;
+}
+
+const ccSync: Handler = async (body) => {
+  if (!isolated()) return { ok: false, error: '这里用的就是本机的 ~/.claude，不用同步' };
+  const items = new Set<string>((Array.isArray(body?.items) ? body.items : []).map(String));
+  if (!items.size) return { ok: false, error: '先勾要同步的' };
+  if (ops.has('sync')) return { started: true };
+  ops.set('sync', '同步中…');
+  void doSync(items).then(async (bad) => {
+    ops.delete('sync');
+    await refresh();
+    progress('plugin', bad.length ? `同步完了，${bad.length} 处没成：${bad.join('；')}` : '同步好了', { ok: !bad.length });
+  });
+  return { started: true };
+};
+
 /* ---------- 汇总 ---------- */
 
 /** 开了「先判定」却没处可打的模板（只有订阅、settings.json 里也没令牌）：每条都会按要回处理，等于白开 */
@@ -724,6 +857,8 @@ export const routes: Record<string, Handler> = {
   'POST /api/setup/cc/plugin': ccPlugin,
   'POST /api/setup/cc/marketplace': ccMarket,
   'POST /api/setup/cc/skill': ccSkill,
+  'GET /api/setup/cc/sync': ccSyncPlan,
+  'POST /api/setup/cc/sync': ccSync,
   'POST /api/setup/mcp/refresh': async () => {
     void refresh().then(() => progress('plugin', 'MCP 状态刷新好了', { ok: !scanErr }));
     return { started: true };
