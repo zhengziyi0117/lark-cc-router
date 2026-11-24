@@ -121,33 +121,12 @@ export interface CardInput {
  */
 export const BODY_ID = 'body';
 export const PROC_ID = 'proc';
-/** 露在外面的那段结论（正文长、收进面板的时候才有） */
-export const LEAD_ID = 'lead';
-
 const panel = (title: string, el: unknown) => ({
   tag: 'collapsible_panel',
   expanded: false,
   header: { title: { tag: 'plain_text', content: title } },
   elements: [el],
 });
-
-/** 露在外面的那段最多多少字。再长就不叫一眼看完了 */
-const LEAD_MAX = 300;
-
-/**
- * 露在卡片上的那段：结论的第一段（开头是标题就带上它下面那段）。system prompt 要求结论在前，
- * 第一段就是结论。代码块不露 —— 掐一半的 ``` 会把卡片后面全变成代码。
- * 跟全文一样就是一段话说完了，不用折；空的（一上来就是代码）就只剩折起来的全文。
- */
-export function lead(text: string): string {
-  const paras = text.trim().split(/\n\s*\n/);
-  let i = 0;
-  while (i < paras.length - 1 && /^#{1,6}\s[^\n]*$/.test(paras[i])) i++;
-  let p = paras.slice(0, i + 1).join('\n\n');
-  const f = p.indexOf('```');
-  if (f >= 0) p = p.slice(0, f).trimEnd();
-  return clip(p, LEAD_MAX);
-}
 
 /**
  * 打字机的节奏。默认 70ms 一个字，一段 2000 字的结论要打两分多钟 —— 调到 ~150 字/秒。
@@ -173,12 +152,8 @@ function assemble(s: CardInput, text: string, process: string): any {
   const elements: unknown[] = [
     { tag: 'markdown', text_size: 'notation', content: `> <font color='grey'>${esc(clip(oneLine(s.q), 240))}</font>` },
   ];
-  // 默认收起（群里不止提问的人在看）：露结论第一段，全文、过程都收进面板，想看自己点开。
-  // 两种卡片一个布局：结论紧跟问题。一段话就说完的原样露出来，不套面板
-  const body = { tag: 'markdown', element_id: BODY_ID, content: text };
-  const head = lead(text);
-  if (head === text.trim()) elements.push(body);
-  else elements.push(...(head ? [{ tag: 'markdown', element_id: LEAD_ID, content: head }] : []), panel('完整结论', body));
+  // 结论全文直接露出来，过程收进面板想看自己点开
+  elements.push({ tag: 'markdown', element_id: BODY_ID, content: text });
 
   // 一次工具都没调也有可能 —— 光想了几段就答了。那时候别写"0 次工具调用"。
   // 流式卡片跑的时候不写次数：次数一变就得整卡重写，正在打的字会被打断（见 KitStream）
@@ -226,8 +201,7 @@ export function buildCard(s: CardInput): unknown {
   const card = assemble(s, body, clipBytes(raw, cap, procTail));
   if (bytes(JSON.stringify(card)) <= MAX_BYTES) return card;
 
-  // 露出来的那段 + 外面那层面板也占字节（overhead 量的时候正文是空的，没有它们）
-  const room = MAX_BYTES - overhead(s) - bytes(JSON.stringify(lead(body))) - 256;
+  const room = MAX_BYTES - overhead(s) - 256;
   const text = clipBytes(body, room, tail);
   const left = Math.min(cap, room - bytes(text));
   if (!raw) return assemble(s, text, '');
@@ -486,7 +460,7 @@ export interface Kit {
 }
 
 /** 卡片里正文 / 过程那两块的内容，和"其它所有东西"（骨架）。骨架没变就只往两块里打字 */
-function parts(card: any): { skel: string; body: string; proc: string; lead: string } {
+function parts(card: any): { skel: string; body: string; proc: string } {
   const c = structuredClone(card);
   const all = c.body.elements.flatMap((e: any) => [e, ...(e.elements ?? [])]);
   const take = (id: string) => {
@@ -497,8 +471,7 @@ function parts(card: any): { skel: string; body: string; proc: string; lead: str
   };
   const body = take(BODY_ID);
   const proc = take(PROC_ID);
-  const lead = take(LEAD_ID);
-  return { skel: JSON.stringify(c), body, proc, lead };
+  return { skel: JSON.stringify(c), body, proc };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -520,7 +493,7 @@ export class KitStream extends CardStream {
   /** CardKit 卡片实体 id。退回普通卡片时没有 */
   entity?: string;
   private seq = 0;
-  private sent = { skel: '', body: '', proc: '', lead: '' };
+  private sent = { skel: '', body: '', proc: '' };
   /** CardKit 用不了，退回普通卡片 */
   private plain = false;
 
@@ -560,7 +533,6 @@ export class KitStream extends CardStream {
       if (now.skel !== this.sent.skel) {
         await this.kit.update(this.entity!, card, ++this.seq);
       } else {
-        if (now.lead !== this.sent.lead) await this.type(LEAD_ID, now.lead);
         if (now.body !== this.sent.body) await this.type(BODY_ID, now.body);
         if (now.proc !== this.sent.proc) await this.type(PROC_ID, now.proc);
       }

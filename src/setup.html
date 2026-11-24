@@ -47,6 +47,11 @@ button:active{background:var(--sunk)}
 button:disabled{opacity:.4;cursor:not-allowed}
 button.primary{background:var(--accent-bg);border-color:var(--accent-bg);color:#fff;font-weight:600}
 button.primary:hover{background:var(--accent-bg);border-color:var(--accent-bg);color:#fff;filter:brightness(.93)}
+dialog.ask{border:0;border-radius:14px;padding:18px;width:min(420px,calc(100vw - 32px));background:var(--bg);color:var(--ink);
+  box-shadow:0 12px 44px rgba(31,30,28,.22)}
+dialog.ask::backdrop{background:rgba(31,30,28,.4)}
+dialog.ask p{margin:0 0 16px;line-height:1.6}
+dialog.ask form>div{display:flex;justify-content:flex-end;gap:8px}
 button.ghost{background:none;border-color:transparent;color:var(--ink-2);padding:4px 7px}
 button.ghost:hover{background:var(--sunk);color:var(--ink)}
 button.danger:hover{border-color:var(--bad);color:var(--bad)}
@@ -313,6 +318,16 @@ function syncBusy() {
     const on = pending.has(b.dataset.key);
     if (on !== b.classList.contains('is-busy')) { b.classList.toggle('is-busy', on); b.disabled = on; }
   }
+}
+/** 二次确认用 <dialog>，不用 confirm()：浏览器掐过一次弹框之后 confirm() 直接当「取消」，按钮就点不动了（同 page.html 的 ask） */
+function ask(msg, yes = '确定') {
+  const d = el('dialog', 'ask'), f = el('form'), row = el('div');
+  const no = el('button', 'ghost', '取消'), ok = el('button', 'primary', yes);
+  f.method = 'dialog'; no.value = ''; ok.value = 'ok';
+  row.append(no, ok); f.append(el('p', null, msg), row); d.append(f);
+  document.body.append(d);
+  d.showModal(); ok.focus();
+  return new Promise((r) => d.addEventListener('close', () => { d.remove(); r(d.returnValue === 'ok'); }));
 }
 function btn(label, cls, key) { const b = el('button', cls, label); b.type = 'button'; if (key) b.dataset.key = key; return b; }
 function inp(ph, type) { const i = el('input'); i.placeholder = ph || ''; if (type) i.type = type; i.spellcheck = false; i.autocomplete = 'off'; return i; }
@@ -710,7 +725,7 @@ function repoList(w) {
   for (const r of repos) {
     const rm = btn('删除', 'ghost danger', `rm:${w.name}/${r.name}`);
     rm.hidden = !r.removable;   // 子模块、顶层仓库删不了（后端会拒），不给按钮
-    rm.onclick = () => confirm(`确定从工作区「${w.name}」里删掉仓库「${r.name}」？`)
+    rm.onclick = async () => await ask(`确定从工作区「${w.name}」里删掉仓库「${r.name}」？`, '删掉')
       && act(rm, 'workspace', '/api/setup/workspace/remove-repo', { workspace: w.name, repo: r.name });
     const date = r.date == null ? '' : typeof r.date === 'number' ? new Date(r.date).toLocaleString('zh-CN', { hour12: false }) : String(r.date);
     const line = row('ws-repo', el('b', null, r.name), el('span', 'ws-pill s-' + r.state, REPO_ST[r.state] || r.state), el('span', 'ws-date', date), rm);

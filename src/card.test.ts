@@ -35,27 +35,13 @@ test('状态决定头部颜色，群里扫一眼就知道结果', () => {
   assert.equal(titleFor('failed').template, 'orange');
 });
 
-test('卡片默认收起：露出结论第一段，全文和过程都收进折叠面板 —— 群里扫一眼看结论，想看细节自己点开', () => {
-  const text = '## 结论\n\n商户回调超时，状态没推进。\n\n细节一\n\n细节二';
+test('结论全文直接露出来，只有过程收进折叠面板', () => {
+  const text = '## 结论\n\n商户回调超时，状态没推进。\n\n细节一\n\n```\nstack\n```';
   const els = (buildCard(state({ status: 'done', text, process: "<text_tag color='neutral'>Bash</text_tag> `ls`", tools: 3 })) as any).body.elements;
-  assert.deepEqual(els.map((e: any) => e.tag), ['markdown', 'markdown', 'collapsible_panel', 'collapsible_panel']);
-  assert.equal(els[1].content, '## 结论\n\n商户回调超时，状态没推进。', '开头是标题的话带上它下面那段');
-  const [full, proc] = [els[2], els[3]];
-  assert.equal(full.expanded, false);
-  assert.match(full.header.title.content, /完整结论/);
-  assert.equal(full.elements[0].content, text, '面板里是全文');
-  assert.equal(proc.expanded, false);
-  assert.match(proc.header.title.content, /3 次工具调用/);
-
-  const short = (buildCard(state({ status: 'done', text: '是 Y 导致的' })) as any).body.elements;
-  assert.deepEqual(short.map((e: any) => e.tag), ['markdown', 'markdown'], '一段话就说完的：原样露出来，不套面板');
-
-  const l = (buildCard(state({ status: 'done', text: '很长'.repeat(400) + '\n\n第二段' })) as any).body.elements;
-  assert.ok(l[1].content.length < 400 && l[1].content.endsWith('…'), '第一段太长：露出来的掐短，全文在面板里');
-
-  const code = (buildCard(state({ status: 'done', text: '```\nstack\n```\n\n第二段' })) as any).body.elements;
-  assert.ok(!code.some((e: any) => e.tag === 'markdown' && e.content.includes('```')), '露出来的不能是半截代码块：一上来就是代码的，只剩折起来的全文');
-  assert.equal(code.at(-1).tag, 'collapsible_panel');
+  assert.deepEqual(els.map((e: any) => e.tag), ['markdown', 'markdown', 'collapsible_panel']);
+  assert.equal(els[1].content, text, '全文原样露出来，不再拆一段摘要 + 「完整结论」面板');
+  assert.equal(els[2].expanded, false);
+  assert.match(els[2].header.title.content, /3 次工具调用/);
 
   const running = (buildCard(state({ process: 'p', tools: 1 })) as any).body.elements;
   assert.equal(running.find((e: any) => e.tag === 'collapsible_panel').expanded, false, '跑的时候过程也收着');
@@ -452,11 +438,7 @@ test('流式卡片：建实体按 card_id 发；骨架不变只打字（正文�
   s.push({ kind: 'text', text: '第二段' });
   await settle();
   const texts = k.ops.filter((o) => o[0] === 'text');
-  assert.deepEqual(texts.map((o) => [o[1], o[2]]), [['body', '第一段']]);
-  assert.equal(k.ops.at(-1)[0], 'update', '第二段来了 = 多出「完整结论」面板，骨架变了，整卡替换');
-  s.push({ kind: 'text', text: '第2.5段' });
-  await settle();
-  assert.deepEqual(k.ops.at(-1).slice(0, 3), ['text', 'body', '第一段\n\n第二段\n\n第2.5段'], '之后骨架不变：全文接着往后打，露出来那段不动');
+  assert.deepEqual(texts.map((o) => [o[1], o[2]]), [['body', '第一段'], ['body', '第一段\n\n第二段']], '骨架不变：正文接着往后打，不整卡替换');
 
   k.closeOnce();
   s.push({ kind: 'text', text: '第三段' });

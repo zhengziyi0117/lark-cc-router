@@ -313,6 +313,11 @@ pre{margin:6px 0 0;padding:9px 11px;background:var(--sunk);border:1px solid var(
   font-size:12px;color:var(--ink-2);display:grid;gap:3px}
 .echo b{color:var(--ink);font-weight:600}
 .echo .no{color:var(--bad)}
+dialog.ask{border:0;border-radius:14px;padding:18px;width:min(420px,calc(100vw - 32px));background:var(--bg);color:var(--ink);
+  box-shadow:0 12px 44px rgba(31,30,28,.22)}
+dialog.ask::backdrop{background:rgba(31,30,28,.4)}
+dialog.ask p{margin:0 0 16px;line-height:1.6}
+dialog.ask form>div{display:flex;justify-content:flex-end;gap:8px}
 
 /*
  * 设置：左边「常规 / Claude Code / @我 / @机器人」+ 模板列表，右边编辑，底下保存条。
@@ -593,6 +598,19 @@ button.link:hover{text-decoration:underline;background:none}
 'use strict';
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+/**
+ * 二次确认。不用 confirm()：浏览器里点开别处、或者勾了「禁止此页再显示对话框」之后，这一页后面的 confirm()
+ * 都不弹、直接当「取消」，按钮看着就像坏了。<dialog> 是页面自己的元素，掐不掉
+ */
+function ask(msg, yes = '确定') {
+  const d = el('dialog', 'ask'), f = el('form'), row = el('div');
+  const no = el('button', 'ghost', '取消'), ok = el('button', 'primary', yes);
+  f.method = 'dialog'; no.value = ''; ok.value = 'ok';
+  row.append(no, ok); f.append(el('p', null, msg), row); d.append(f);
+  document.body.append(d);
+  d.showModal(); ok.focus();
+  return new Promise((r) => d.addEventListener('close', () => { d.remove(); r(d.returnValue === 'ok'); }));
+}
 const STATUS_CN = { running: '处理中', done: '完成', failed: '中断', skipped: '跳过' };
 const ARG_KEYS = ['command', 'file_path', 'path', 'pattern', 'query', 'url', 'prompt', 'description', 'skill'];
 const TPL_COLOR = { blue: '#3370FF', green: '#34C724', orange: '#FF8800', red: '#F54A45', grey: '#8F959E', turquoise: '#00D6B2', violet: '#7F3BF5' };
@@ -892,7 +910,7 @@ function renderDetail() {
     const stop = el('button', 'danger', '终止');
     stop.title = '杀掉这次 CC，群里的卡片收成「已手动停止」';
     stop.onclick = async () => {
-      if (!confirm('终止这次排查？')) return;
+      if (!(await ask('终止这次排查？', '终止'))) return;
       stop.disabled = true;
       const d = await post('/api/stop', { id: j.id });
       if (d.error) { alert(d.error); stop.disabled = false; }
@@ -906,7 +924,7 @@ function renderDetail() {
   if (resendable) {
     again.title = '结论已经有了，只是卡片没发出去 / 没改上：把结论重新发一张卡片' + (j.test ? '给你自己' : '到原会话') + '，不重跑';
     again.onclick = async () => {
-      if (!j.test && !confirm(`把结论重新发到${isP2P(j.chatId) ? '原私聊' : '原话题'}里？`)) return;
+      if (!j.test && !(await ask(`把结论重新发到${isP2P(j.chatId) ? '原私聊' : '原话题'}里？`, '重发'))) return;
       again.disabled = true;
       const d = await post('/api/resend', { id: j.id, mode: j.mode });
       if (d.error) { alert(d.error); again.disabled = false; }
@@ -917,7 +935,7 @@ function renderDetail() {
     const as = j.mode === 'bot' ? '以机器人身份' : '以你的身份';
     again.title = `${as}在${where}里重新回一次（不再判定）`;
     again.onclick = async () => {
-      if (!confirm(`${as}在${where}里重新回一次？`)) return;
+      if (!(await ask(`${as}在${where}里重新回一次？`, '再跑一次'))) return;
       again.disabled = true;
       const d = await post('/api/rerun', { id: j.id, mode: j.mode });
       if (d.error) { alert(d.error); again.disabled = false; }
@@ -1417,9 +1435,9 @@ function openSettings(at) {
   renderSettings();
 }
 /** 有没保存的改动就先问一句。返回 false = 用户选了留下 */
-const okToLeave = () => !draft || !changes().length || confirm('有改动还没保存，丢掉？');
-function closeSettings() {
-  if (!okToLeave()) return;
+const okToLeave = async () => !draft || !changes().length || ask('有改动还没保存，丢掉？', '丢掉');
+async function closeSettings() {
+  if (!(await okToLeave())) return;
   $('settings').hidden = true; $('stage').hidden = false; draft = null; keepStat = '';
   $('btn-cfg').setAttribute('aria-pressed', 'false');
   history.replaceState(null, '', location.pathname + location.search);
@@ -2036,7 +2054,7 @@ function paneCC(head, body) {
       const s = sw(p.enabled, p.enabled ? '启用' : '停用', (v) => ccDo('/api/setup/cc/plugin', { action: v ? 'enable' : 'disable', plugin: p.id }, (v ? '启用 ' : '停用 ') + p.name + '…'));
       acts = [s,
         btn('更新', () => ccDo('/api/setup/cc/plugin', { action: 'update', plugin: p.id }, '更新 ' + p.name + '…'), 'ghost'),
-        btn('卸载', () => { if (confirm('卸载插件「' + p.name + '」？它带的 skill 和 MCP 一起没了。')) ccDo('/api/setup/cc/plugin', { action: 'uninstall', plugin: p.id }, '卸载 ' + p.name + '…'); }, 'ghost danger')];
+        btn('卸载', async () => { if (await ask('卸载插件「' + p.name + '」？它带的 skill 和 MCP 一起没了。')) ccDo('/api/setup/cc/plugin', { action: 'uninstall', plugin: p.id }, '卸载 ' + p.name + '…'); }, 'ghost danger')];
     }
     pl.appendChild(ccRow(p.name, [tag, sub], acts));
   }
@@ -2068,7 +2086,7 @@ function paneCC(head, body) {
     for (const k of list) {
       const d = el('small', 'ccdesc', k.description || ''); d.title = k.description || '';
       const acts = k.personal ? [btn('删除', async () => {
-        if (!confirm('删掉 skill「' + k.name + '」？')) return;
+        if (!(await ask('删掉 skill「' + k.name + '」？', '删掉'))) return;
         const r = await ccDo('/api/setup/cc/skill', { action: 'remove', name: k.name });
         if (r.ok) ccSay('删掉了 ' + k.name);
       }, 'ghost danger')] : [];
@@ -2101,7 +2119,7 @@ function paneCC(head, body) {
   for (const m of cc.marketplaces) {
     const acts = m.busy ? [el('span', 'ccbusy', m.busy)] : [
       btn('更新', () => ccDo('/api/setup/cc/marketplace', { action: 'update', name: m.name }, '更新市场 ' + m.name + '…'), 'ghost'),
-      !m.preset && !m.builtin && btn('移除', () => { if (confirm('移除插件市场「' + m.name + '」？')) ccDo('/api/setup/cc/marketplace', { action: 'remove', name: m.name }, '移除 ' + m.name + '…'); }, 'ghost danger'),
+      !m.preset && !m.builtin && btn('移除', async () => { if (await ask('移除插件市场「' + m.name + '」？')) ccDo('/api/setup/cc/marketplace', { action: 'remove', name: m.name }, '移除 ' + m.name + '…'); }, 'ghost danger'),
     ];
     kl.appendChild(ccRow(m.name, [m.preset && el('span', 'badge', '团队推荐'), m.builtin && el('span', 'badge', '自带'), m.url], acts));
   }
@@ -2150,7 +2168,7 @@ async function mcpLogin(name) {
   loadCC();
 }
 async function mcpLogout(m) {
-  if (!confirm('退出 ' + m.label + ' 的登录？之后要用得重新授权。')) return;
+  if (!(await ask('退出 ' + m.label + ' 的登录？之后要用得重新授权。', '退出'))) return;
   const d = await post('/api/setup/mcp/logout', { name: m.name }).catch((e) => ({ ok: false, error: e.message }));
   if (!d.ok) ccLogin[m.name] = { error: d.error || '没退出成功' };
   else ccSay('已退出 ' + m.label);
@@ -2494,12 +2512,12 @@ function projPicker(value, onset, empty = '还没选项目') {
 }
 
 /** 离开这一页（去向导之类）：设置里有没保存的改动先问 */
-function leave(url) { if (okToLeave()) location.href = url; }
+async function leave(url) { if (await okToLeave()) location.href = url; }
 
-function deleteTemplate(name) {
+async function deleteTemplate(name) {
   if (Object.keys(draft.templates).length <= 1) return alert('至少要留一个模板');
   const users = usersOf(name);
-  if (users.length && !confirm(users.length + ' 个会话在用它，删了会改用默认模板。确定？')) return;
+  if (users.length && !(await ask(users.length + ' 个会话在用它，删了会改用默认模板。确定？', '删掉'))) return;
   delete draft.templates[name];
   delete renamed[name];
   for (const id of users) draft.user.chats[id] = '';
@@ -2687,7 +2705,7 @@ $('run-go').onclick = async () => {
   $('run-go').disabled = false;
   if (!r.ok) { $('run-stat').textContent = d.error || '起不来'; return; }
   // 从设置里点的试跑：回主界面看进度（「试跑」按钮只在都保存了的时候能点，这里不会丢改动）
-  if (draft) closeSettings();
+  if (draft) await closeSettings();
   grp = body.chatId || grp; sel = d.id; view = 'trace'; closeRun(); renderAll();
 };
 
@@ -2703,6 +2721,7 @@ $('run-judge').onclick = async () => {
 
 /* ---------- 键盘 ---------- */
 document.addEventListener('keydown', (e) => {
+  if (document.querySelector('dialog[open]')) return;   // 确认框自己管 Esc / 回车
   if (e.key === 'Escape') { if (!$('run').hidden) closeRun(); else if (!$('settings').hidden) closeSettings(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 's' && draft) { e.preventDefault(); if (!$('set-save').disabled) $('set-save').click(); return; }
   if (e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { e.preventDefault(); $('gsearch').focus(); }

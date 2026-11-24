@@ -1,6 +1,6 @@
 {
   "name": "lark-cc-router",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "private": true,
   "type": "module",
   "description": "飞书群里有人 @我 → Claude Code 全权限排查 → 以我本人身份在话题里流式回一张卡片",
