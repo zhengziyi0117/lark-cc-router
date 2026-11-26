@@ -39,7 +39,7 @@ Electron 主进程 (desktop/main.js)
 | `src/app.ts` | `start({ strict })` → `{ cfg, port, stop() }`。非 strict 时没扫码也照样起 web，就绪后下一轮自动开始轮询。`NEED`：@我 必需的两个 scope |
 | `src/setup/types.ts` | 向导契约：`Section` / `Check` / `Handler` / `progress()` |
 | `src/setup/index.ts` | 汇总各模块：`GET /api/setup/status`、`GET /api/setup/preset`，按 `'POST /api/setup/xxx'` 分发路由 |
-| `src/setup/preset.ts` + `desktop/preset.json` | 团队预置：共享飞书应用、网关、git host、推荐工作区、推荐插件。仓库里是空的，发版时用 GitHub secret `PRESET_JSON` 覆盖（见 [desktop.md](desktop.md#发版)） |
+| `src/setup/preset.ts` + `desktop/preset.json` | 向导预置。公开包中的飞书应用、网关和推荐工作区由用户配置（见 [desktop.md](desktop.md#发版)） |
 | `src/setup/git.ts` | GitLab token 按 host 存（`HOME_DIR/git-credentials.json`，0600）。`gitEnv()`：给 git 子进程的环境变量，有 token 的 host 自动把 SSH 地址改写成 HTTPS 并带上认证头 |
 
 所有起子进程的地方：`spawn(bin(...), args, { windowsHide: true })`，Windows 上不加 `windowsHide` 会弹黑框。

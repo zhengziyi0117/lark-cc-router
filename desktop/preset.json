@@ -2,7 +2,7 @@
   "larkApp": {
     "appId": "",
     "appSecret": "",
-    "note": "共享飞书应用：留空 = 向导里让用户自己填。发版时可用 GitHub secret PRESET_JSON 整份替换这个文件"
+    "note": "公开安装包留空，由用户在向导里配置自己的飞书应用"
   },
   "larkScopes": "search:message im:message.group_msg:get_as_user im:message.p2p_msg:get_as_user im:message:readonly im:message.send_as_user im:message im:chat:read",
   "gateway": {

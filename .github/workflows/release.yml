@@ -23,12 +23,6 @@ jobs:
       - run: npm ci
       - run: npm test
 
-      # 可选：仓库 Settings → Secrets 里配 PRESET_JSON（格式同 desktop/preset.json），打进安装包当向导默认值
-      - name: 团队预置
-        env:
-          PRESET_JSON: ${{ secrets.PRESET_JSON }}
-        run: if [ -n "$PRESET_JSON" ]; then printf '%s' "$PRESET_JSON" > desktop/preset.json; fi
-
       - run: npx electron-builder --mac --win --publish never
 
       # 给桌面版自动更新读：版本号 + 每个包的大小、sha256（见 desktop/update.js）

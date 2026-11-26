@@ -17,6 +17,7 @@
   --serif:"Iowan Old Style","Charter",Georgia,"Songti SC","Source Han Serif SC","Noto Serif CJK SC","Microsoft YaHei",serif;
   --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
   --r:12px; --rs:8px; --sh:0 1px 3px rgba(38,38,36,.06);
+  color-scheme:light dark;
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#1F1E1C; --surface:#262624; --sunk:#1A1917; --sel:#34332F;
@@ -76,7 +77,9 @@ code,.mono{font-family:var(--mono);font-size:.92em}
 .brand{font:500 17px/1 var(--serif);letter-spacing:-.005em}
 .topbar button[aria-pressed=true]{background:var(--sel);border-color:var(--rule)}
 .brand b{color:var(--accent);font-weight:400;margin:0 1px}
-.conn{display:flex;align-items:center;gap:7px;color:var(--ink-2);font-size:12.5px}
+.conn{display:flex;align-items:center;gap:7px;color:var(--ink-2);font-size:12.5px;min-width:0}
+.conn>#stat{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar button{flex:none;white-space:nowrap}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--bad);flex:none}
 .dot.on{background:var(--ok);box-shadow:0 0 0 3px var(--ok-w)}
 
@@ -149,6 +152,8 @@ code,.mono{font-family:var(--mono);font-size:.92em}
 .jq{margin:6px 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
   line-height:1.45;font-size:13.5px}
 .jmeta{color:var(--ink-3);font-size:11.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.jmeta+.jmeta{margin-top:3px}
+.jwhere{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}   /* 认不出的会话只剩一长串 oc_ id */
 .pill{font-size:11px;font-weight:600;padding:1.5px 8px;border-radius:6px;background:var(--skip-w);color:var(--skip);flex:none}
 .pill.running{background:var(--run-w);color:var(--run)}
 .pill.done{background:var(--ok-w);color:var(--ok)}
@@ -174,6 +179,9 @@ button.hinfo-btn[aria-expanded=true]::after{content:" ▴"}
 .hinfo-bad{color:var(--bad)}
 .toolbar{display:flex;align-items:center;gap:8px;margin:8px 0 0;flex-wrap:wrap}
 .toolbar button[aria-pressed=true]{background:var(--sel);color:var(--ink)}
+.tacts{display:flex;align-items:center;gap:8px;margin-left:auto;flex:none}
+.tacts button{white-space:nowrap}
+.tacts button.ghost{padding:5px 10px}
 .seg{display:flex;border:1px solid var(--rule);border-radius:var(--rs);overflow:hidden}
 .seg button{border:none;border-radius:0;background:none;color:var(--ink-3);padding:4px 9px;font-size:12px}
 .seg button+button{border-left:1px solid var(--rule)}
@@ -206,7 +214,8 @@ button.hinfo-btn[aria-expanded=true]::after{content:" ▴"}
 .ev.init{color:var(--ink-3);font-family:var(--mono);font-size:12px}
 .at{position:absolute;left:-78px;top:2px;width:52px;text-align:right;font:11px var(--mono);color:var(--ink-3)}
 .evhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.chip{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);flex:none}
+.chip{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);flex:0 1 auto;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ev.tool .chip{background:var(--accent-w);border-radius:var(--rs);padding:1.5px 7px}
 .chip.err{color:var(--bad)}
 .ev.tool .chip.err{background:var(--bad-w)}
@@ -263,7 +272,7 @@ pre{margin:6px 0 0;padding:9px 11px;background:var(--sunk);border:1px solid var(
  * 过程（思考 + 工具）收成一行可展开的摘要，正文是衬线大字。过程展开后还是上面那条时间轴
  */
 .chat{max-width:50rem;margin:0 auto}
-.turn{margin:0 0 38px}
+.turn{margin:0 0 38px;scroll-margin-top:14px}
 .umsg{display:flex;flex-direction:column;align-items:flex-end;margin-bottom:14px}
 .uhead{display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:flex-end;color:var(--ink-3);font-size:12px;margin-bottom:5px}
 .uhead b{color:var(--ink-2);font-weight:600}
@@ -280,41 +289,66 @@ pre{margin:6px 0 0;padding:9px 11px;background:var(--sunk);border:1px solid var(
 .steps[open]>summary::before{content:"▾ "}
 .steps>summary:hover{background:var(--sunk);color:var(--ink)}
 .steps>.trace{margin:10px 0 4px}
-.afoot{display:flex;gap:12px;flex-wrap:wrap;align-items:center;color:var(--ink-3);font-size:12px;margin-top:8px}
+.afoot{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;color:var(--ink-3);font-size:12px;margin-top:8px}
+.afoot>span{white-space:nowrap}
 .afoot b{color:var(--ink-2);font-weight:600;font-family:var(--mono)}
 .aerr{color:var(--bad);font-size:12.5px;margin-top:6px}
 .composer{flex:none;border-top:1px solid var(--line);background:var(--surface);padding:12px 24px 14px}
 .composer textarea{display:block;max-width:50rem;margin:0 auto;font:14px/1.55 var(--sans);resize:none;
   field-sizing:content;min-height:2.8em;max-height:30vh;border-radius:var(--r);padding:9px 12px}
 .crow{display:flex;align-items:center;gap:10px;max-width:50rem;margin:8px auto 0}
-.crow .note{margin:0}
-.ccheck{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);cursor:pointer}
+.crow button{flex:none;white-space:nowrap}
+.crow .note{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ccheck{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);cursor:pointer;min-width:0}
+.ccheck span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ccheck input{width:auto;margin:0}
-/* 右栏：左边对话，右边侧栏（这一串的概要、每一问、运行环境、用量、话题上下文、飞书卡片） */
+/* 右栏：左边对话（右边贴着「每一问」小条），右边侧栏（这一串的概要、运行环境、用量、飞书卡片） */
 .dsplit{flex:1;display:flex;min-height:0}
 .dconv{flex:1;display:flex;flex-direction:column;min-width:0}
-.side{flex:none;width:21rem;overflow:auto;border-left:1px solid var(--line);background:var(--bg);padding:4px 16px 40px;font-size:12.5px}
-.sblk{padding:12px 0;border-bottom:1px solid var(--line)}
+.side{flex:none;width:21rem;overflow:auto;border-left:1px solid var(--line);background:var(--bg);padding:4px 16px 20px;font-size:12.5px}
+.sblk{padding:10px 0;border-bottom:1px solid var(--line)}
 .sblk:last-child{border-bottom:none}
-.sblk h3{margin:0 0 8px;font-size:11.5px;font-weight:600;color:var(--ink-3);letter-spacing:.04em}
-.side .kv{grid-template-columns:auto minmax(0,1fr);gap:5px 12px;font-size:12.5px}
+.sblk h3{margin:0 0 7px;font-size:11.5px;font-weight:600;color:var(--ink-3);letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+.side .kv{grid-template-columns:4.5em minmax(0,1fr);gap:3px 12px;font-size:12.5px}
 .side .kv dd{font-family:var(--sans);font-size:12.5px;word-break:break-word}
 .side .kv dd code{cursor:pointer;word-break:break-all}
-.sturns{list-style:none;margin:0;padding:0}
-.sturns li{padding:7px 8px;margin:0 -8px;border-radius:var(--rs);cursor:pointer}
-.sturns li:hover{background:var(--sunk)}
+/*
+ * 每一问的小条（跟 ChatGPT 一个用法）：对话右边一问一道短横，看到哪一问哪道就长一点、深一点；
+ * 鼠标移上去左边弹出每一问的列表，点一下跳过去。弹层是小条的子元素，再垫一段 padding 当桥，鼠标挪过去不会断
+ */
+.dwrap{flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
+.dconv.has-map .dbody,.dconv.has-map .composer{padding-right:48px}
+.tmap{position:absolute;right:14px;top:50%;transform:translateY(-50%);z-index:3;display:flex;flex-direction:column;
+  align-items:flex-end;padding:6px 4px;max-height:calc(100% - 32px);outline:none}
+.tmap:focus-visible{outline:2px solid var(--accent)}
+.tmap>i{display:block;width:22px;height:9px;flex:none;cursor:pointer;position:relative}
+.tmap>i::after{content:"";position:absolute;right:0;top:3.5px;width:12px;height:2px;border-radius:1px;background:var(--rule);transition:width .12s,background .12s}
+.tmap>i.running::after{background:var(--run)}
+.tmap>i.failed::after{background:var(--bad)}
+.tmap>i.on::after{width:20px;background:var(--ink-2)}
+.tpop{display:none;position:absolute;right:100%;top:50%;transform:translateY(-50%);padding-right:8px}
+.tmap:hover .tpop,.tmap:focus-within .tpop{display:block}
+.tpop ol{list-style:none;margin:0;padding:6px;width:20rem;max-height:min(70vh,34rem);overflow:auto;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r);box-shadow:0 8px 28px rgba(31,30,28,.14)}
+.tpop li>button{display:block;width:100%;padding:7px 9px;border:0;border-radius:var(--rs);background:none;text-align:left}
+.tpop li>button:hover{background:var(--sunk)}
+.tpop li.on>button{background:var(--sel)}
 .st-top{display:flex;gap:6px;align-items:center;color:var(--ink-3);font-size:11.5px;min-width:0}
 .st-top>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.st-q{margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.st-sub{color:var(--ink-3);font-size:11.5px;margin-top:2px}
-.sctx{margin:2px 0 6px}
-.sctx>summary{cursor:pointer;color:var(--ink-2)}
+.st-q{display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-sub{display:block;color:var(--ink-3);font-size:11.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smsg{margin:8px 0;padding-left:9px;border-left:2px solid var(--rule)}
 .smsg-h{color:var(--ink-3);font-size:11.5px}
 .smsg-b{white-space:pre-wrap;word-break:break-word;margin-top:2px}
-.scard>summary{cursor:pointer;color:var(--ink-2);margin-top:8px}
+.scard>summary{cursor:pointer;color:var(--ink-2)}
 .scard .chatbg{padding:10px;margin-top:8px}
-.uctxl{margin-top:5px;font-size:12px}
+.uctx{max-width:85%;margin-top:6px;font-size:12.5px}
+.uctx>summary{cursor:pointer;color:var(--accent);font-size:12px;list-style:none;width:fit-content;margin-left:auto}
+.uctx>summary::-webkit-details-marker{display:none}
+.uctx>summary::after{content:" ›"}
+.uctx[open]>summary::after{content:" ⌄"}
+.uctx[open]{background:var(--sunk);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px;max-height:22rem;overflow:auto}
+.uctx>.note{margin:6px 0 0}
 .jsearch{flex:none;padding:8px 14px;border-bottom:1px solid var(--line)}
 .jlast{color:var(--ink-2);font-size:12.5px;margin:-2px 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .jans{color:var(--ink-3);font-size:12px;margin:0 0 6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -559,6 +593,7 @@ button.link:hover{text-decoration:underline;background:none}
 @media(max-width:980px){
   .stage{grid-template-columns:13rem 1fr;grid-template-rows:auto 1fr}
   .stage-grip{display:none}
+  .col.rail{grid-row:1/3}
   .col.mid{grid-column:2;grid-row:1;max-height:42vh;border-left:none;border-bottom:1px solid var(--line)}
   .col.main{grid-column:2;grid-row:2}
   .fld{grid-template-columns:1fr}
@@ -576,6 +611,7 @@ button.link:hover{text-decoration:underline;background:none}
   .col.main{grid-column:1;grid-row:3}
   .trace{padding-left:52px}.trace::before{left:37px}.ev::before{left:-19px}.at{display:none}
   .side{display:none}
+  .tmap{display:none!important}.dconv.has-map .dbody,.dconv.has-map .composer{padding-right:24px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -613,7 +649,10 @@ button.link:hover{text-decoration:underline;background:none}
     <div class="dhead" id="dhead" hidden></div>
     <div class="dsplit">
     <div class="dconv">
-    <div class="dbody" id="dbody"></div>
+    <div class="dwrap">
+      <div class="dbody" id="dbody"></div>
+      <nav class="tmap" id="tmap" tabindex="0" aria-label="每一问" hidden></nav>
+    </div>
     <div class="composer" id="composer" hidden>
       <textarea id="c-q" rows="1" placeholder="接着问…（Enter 发送，Shift+Enter 换行）"></textarea>
       <div class="crow">
@@ -943,15 +982,18 @@ function renderMid() {
       meta.append(el('span', null, whos.slice(0, 2).join('、') + (whos.length > 2 ? ` 等 ${whos.length} 人` : '')));
       // 单聊里发问的人就是会话本身，照写会得到"张三 ▸ 张三"；没项目也别挂个"▸ —"
       const where = grp ? src.project && projName(src.project) : chatName(src.chatId);
-      if (where && !whos.includes(where)) meta.append(el('span', null, '▸'), el('span', null, where));
+      if (where && !whos.includes(where)) meta.append(el('span', 'jwhere', '▸ ' + where));
     }
-    if (j.endedAt) meta.append(el('span', null, '· ' + dur(j.endedAt - j.startedAt)));
     // 上下文看最近一问的（这个 session 现在多大），输出是整串加起来
     const uses = g.map(jobUse).filter(Boolean);
-    if (uses.length) meta.append(el('span', null, `· 上下文 ${tok(uses.at(-1).ctx)} · 输出 ${tok(uses.reduce((n, u) => n + u.out, 0))}`));
+    const nums = el('div', 'jmeta');
+    const txt = [j.endedAt && dur(j.endedAt - j.startedAt),
+      uses.length && `上下文 ${tok(uses.at(-1).ctx)}`, uses.length && `输出 ${tok(uses.reduce((n, u) => n + u.out, 0))}`].filter(Boolean).join(' · ');
+    if (txt) nums.append(el('span', null, txt));
     // 只有"没发出去"才值得标出来 —— 每条都挂个"已发出"只是噪音
-    if (!j.posted || j.sendError) meta.append(threadChip(j));
+    if (!j.posted || j.sendError) nums.append(threadChip(j));
     li.append(meta);
+    if (nums.childNodes.length) li.append(nums);
     li.onclick = () => { sel = j.id; renderMid(); renderDetail(); };
     ul.appendChild(li);
   }
@@ -1005,6 +1047,7 @@ function renderDetail() {
   renderComposer(g);
   if (!j) {
     $('side').hidden = true;
+    renderMap([]);
     box.appendChild(emptyState());
     return;
   }
@@ -1024,7 +1067,8 @@ function renderDetail() {
     el('span', null, j.test ? (j.chatId ? chatName(j.chatId) : '没指定会话') : dm ? '私聊' : '群'));
   if (g.length > 1) meta.append(el('span', null, '·'), el('span', null, `${g.length} 问`));
   meta.append(threadChip(j));
-  tb.append(meta, el('span', 'spacer'));
+  const acts = el('div', 'tacts');
+  tb.append(meta, acts);
   const session = g.find((x) => x.session)?.session;
   const t = session && !session.startsWith('codex:') ? tx.get(session) : null;
   if (t === undefined) loadTx(session);
@@ -1039,7 +1083,7 @@ function renderDetail() {
       const d = await post('/api/stop', { id: live.id });
       if (d.error) { alert(d.error); stop.disabled = false; }
     };
-    tb.appendChild(stop);
+    acts.appendChild(stop);
   }
   // 结论有了、只是卡片没发出去：同一个按钮变成「重发到飞书」，不重跑。
   // 飞书里来的「再跑一次」：回原会话、用原身份重跑（@我 是你本人，@机器人 是机器人）。试跑的没有原会话，照旧弹试跑框发给自己
@@ -1067,20 +1111,70 @@ function renderDetail() {
     const tr = el('button', 'ghost', '试跑');
     tr.title = '改一改问题 / 项目再跑，卡片只发给你自己';
     tr.onclick = () => openRun(j);
-    tb.appendChild(tr);
+    acts.appendChild(tr);
   }
-  tb.appendChild(again);
+  acts.appendChild(again);
   const side = el('button', 'ghost', '侧栏');
   side.setAttribute('aria-pressed', String(sideOpen));
-  side.title = '这一串的概要、每一问、运行环境、用量、话题上下文、飞书卡片';
+  side.title = '这一串的概要、运行环境、用量、飞书卡片';
   side.onclick = () => { sideOpen = !sideOpen; try { localStorage.setItem('lcr.side', sideOpen ? '1' : '0'); } catch (e) {} renderDetail(); };
-  tb.appendChild(side);
+  acts.appendChild(side);
   h.appendChild(tb);
 
   box.appendChild(renderChat(turns, t));
   renderSide(g, turns, session, t, same);
+  renderMap(turns);
   box.scrollTop = same ? y : box.scrollHeight;
+  markTurn();
 }
+
+/** 对话右边的「每一问」小条 + 悬停弹出的列表。一问就不出（没什么好跳的） */
+function renderMap(turns) {
+  const m = $('tmap');
+  m.textContent = '';
+  m.hidden = turns.length < 2;
+  m.closest('.dconv').classList.toggle('has-map', !m.hidden);
+  if (m.hidden) return;
+  const go = (i) => document.getElementById('turn-' + i)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const pop = el('div', 'tpop'), ol = el('ol');
+  turns.forEach((tu, i) => {
+    const x = tu.job, q = oneLine(x ? x.q : askOf(tu.prompt));
+    const tick = el('i', x?.status === 'running' ? 'running' : x?.status === 'failed' ? 'failed' : '');
+    tick.onclick = () => go(i);
+    m.appendChild(tick);
+    const li = el('li'), item = el('button');
+    item.type = 'button';
+    const top = el('span', 'st-top');
+    top.append(el('span', 'pill ' + (x?.status || 'done'), x ? st(x) : '记录'), el('span', null, when(x?.startedAt || tu.t)),
+      el('span', null, !x ? '网页上问的' : x.test ? (x.reply ? '网页追问' : '试跑') : x.who));
+    item.append(top, el('span', 'st-q', q));
+    const u = usageOf(tu.events) || jobUse(x);
+    const bits = [x?.endedAt && dur(x.endedAt - x.startedAt), u && `上下文 ${tok(u.ctx)} · 输出 ${tok(u.out)}`].filter(Boolean);
+    if (bits.length) item.appendChild(el('span', 'st-sub', bits.join(' · ')));
+    item.title = q;
+    item.onclick = () => go(i);
+    li.appendChild(item);
+    ol.appendChild(li);
+  });
+  pop.appendChild(ol);
+  m.appendChild(pop);
+}
+
+/** 现在读到第几问：顶上三分之一处落在哪一问里。小条和列表里都标出来 */
+function markTurn() {
+  const box = $('dbody'), m = $('tmap');
+  if (m.hidden) return;
+  const line = box.getBoundingClientRect().top + box.clientHeight / 3;
+  const turns = box.querySelectorAll('.turn');
+  let cur = 0;
+  turns.forEach((n, i) => { if (n.getBoundingClientRect().top <= line) cur = i; });
+  // 滚到底了就是最后一问（最后一问很短的时候，它的顶永远到不了三分之一那条线）
+  if (box.scrollTop + box.clientHeight >= box.scrollHeight - 4) cur = turns.length - 1;
+  m.querySelectorAll(':scope>i').forEach((x, i) => x.classList.toggle('on', i === cur));
+  m.querySelectorAll('li').forEach((x, i) => x.classList.toggle('on', i === cur));
+}
+let markQ = 0;
+$('dbody').addEventListener('scroll', () => { cancelAnimationFrame(markQ); markQ = requestAnimationFrame(markTurn); }, { passive: true });
 
 function emptyState() {
   const d = el('div', 'empty');
@@ -1159,12 +1253,19 @@ function turnNode({ job, prompt, t, events }, i) {
   const bubble = el('div', 'ububble');
   bubble.appendChild(mdNode(q));
   u.append(head, bubble);
-  // 带了话题上下文的：全文在侧栏，这里给个入口
+  // 带了话题上下文的（第一问是话题里之前的全部，后面的是上次回复之后的新消息）：气泡底下折着，点开就地看
   const ctx = ctxParts(prompt);
   if (ctx) {
-    const a = el('button', 'link uctxl', `带了 ${ctx.filter((x) => x.who).length} 条话题消息 ›`);
-    a.onclick = () => showCtx(i);
-    u.appendChild(a);
+    const d = el('details', 'uctx');
+    fold(d, 'ctx-' + (job?.id || t), false);
+    d.appendChild(el('summary', null, `带了 ${ctx.filter((x) => x.who).length} 条话题消息`));
+    for (const p of ctx) {
+      if (!p.who) { d.appendChild(el('div', 'note', p.text)); continue; }
+      const m = el('div', 'smsg');
+      m.append(el('div', 'smsg-h', p.who + '　' + p.at), el('div', 'smsg-b', p.text));
+      d.appendChild(m);
+    }
+    u.appendChild(d);
   }
   n.appendChild(u);
 
@@ -1192,12 +1293,12 @@ function paintFoot(a) {
   const u = usageOf(a._evs) || (job && !a._evs.length ? jobUse(job) : null);
   const tools = a._evs.filter((e) => e.kind === 'tool').length;
   f.textContent = '';
+  const pair = (k, v, unit = '') => { const p = el('span', null, k + ' '); p.append(el('b', null, v), unit); f.append(p); };
   if (job) f.append(el('span', 'pill ' + job.status, st(job)));
-  if (job?.endedAt) f.append(el('span', null, '耗时 '), el('b', null, dur(job.endedAt - job.startedAt)));
-  if (tools) f.append(el('span', null, '工具 '), el('b', null, String(tools)));
-  if (u?.ctx) f.append(el('span', null, '上下文 '), el('b', null, tok(u.ctx)));
-  if (u?.out) f.append(el('span', null, '输出 '), el('b', null, tok(u.out)));
-  if (u) f.append(el('span', null, 'tokens'));
+  if (job?.endedAt) pair('耗时', dur(job.endedAt - job.startedAt));
+  if (tools) pair('工具', String(tools));
+  if (u?.ctx) pair('上下文', tok(u.ctx), ' tokens');
+  if (u?.out) pair('输出', tok(u.out), ' tokens');
   f.hidden = !f.childNodes.length;
 }
 
@@ -1277,7 +1378,9 @@ function evNode(ev, t0, open) {
     n.appendChild(el('div', 'evhead', ev.ok ? '✓ 结束' : '✗ 结束'));
   } else if (ev.kind === 'tool') {
     const head = el('div', 'evhead');
-    head.append(el('span', 'chip', '⚙ ' + ev.name));
+    const chip = el('span', 'chip', '⚙ ' + ev.name);
+    chip.title = ev.name;
+    head.append(chip);
     const a = argSummary(ev.input);
     if (a) head.append(el('span', 'arg', a));
     head.append(el('span', 'dur', ''));
@@ -1337,12 +1440,6 @@ function ctxParts(prompt) {
   });
 }
 
-function showCtx(i) {
-  if (!sideOpen) { sideOpen = true; renderDetail(); }
-  sideFold.set('ctx-' + i, true);
-  const d = document.getElementById('ctx-' + i);
-  if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-}
 
 function renderSide(g, turns, session, t, same) {
   const s = $('side');
@@ -1369,23 +1466,6 @@ function renderSide(g, turns, session, t, same) {
     ['总耗时', ended.length && dur(ended.reduce((n, x) => n + x.endedAt - x.startedAt, 0))],
   ]);
 
-  const qs = sec(`每一问 · ${turns.length}`);
-  const ol = el('ol', 'sturns');
-  turns.forEach((tu, i) => {
-    const x = tu.job;
-    const li = el('li');
-    const top = el('div', 'st-top');
-    top.append(el('span', 'pill ' + (x?.status || 'done'), x ? st(x) : '记录'), el('span', null, when(x?.startedAt || tu.t)), el('span', null, x ? asker(x) : '网页上问的'));
-    li.append(top, el('div', 'st-q', oneLine(x ? x.q : askOf(tu.prompt))));
-    const u = usageOf(tu.events) || jobUse(x);
-    const bits = [x?.endedAt && dur(x.endedAt - x.startedAt), u && `上下文 ${tok(u.ctx)} · 输出 ${tok(u.out)}`, x?.reason].filter(Boolean);
-    if (bits.length) li.appendChild(el('div', 'st-sub', bits.join(' · ')));
-    li.title = '跳到这一问';
-    li.onclick = () => document.getElementById('turn-' + i)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    ol.appendChild(li);
-  });
-  qs.appendChild(ol);
-
   // 跑过就说明当时是开着的：没单独勾的就是默认模板。模板、权限、API 是现在的配置，不一定是当时的
   const jm = cfg?.[j.mode === 'bot' ? 'bot' : 'user'];
   const rr = jm && (jm.resolved?.[j.chatId] || jm.fallback);
@@ -1401,7 +1481,7 @@ function renderSide(g, turns, session, t, same) {
   }
   const bad = (init?.mcp || []).filter((m) => m.status !== 'connected' && m.status !== 'pending');
   kv(sec('运行环境'), [
-    ['项目', (t && t.cwd) || j.project || rr?.project],
+    ['项目', tilde((t && t.cwd) || j.project || rr?.project || '')],
     ['执行器', session?.startsWith('codex:') ? 'Codex' : session ? 'Claude Code' : rr && agentName(rr)],
     ['模型', model || rr?.model],
     ['模板', rr?.template],
@@ -1418,30 +1498,9 @@ function renderSide(g, turns, session, t, same) {
     ['工具', String(turns.reduce((n, x) => n + (x.events || []).filter((e) => e.kind === 'tool').length, 0)) + ' 次'],
   ]);
 
-  const ctxs = turns.map((tu, i) => [i, ctxParts(tu.prompt)]).filter(([, c]) => c);
-  if (ctxs.length) {
-    const box = sec('话题上下文');
-    box.appendChild(el('div', 'note', '每一问之前补给模型的群消息：第一问是话题里之前的全部，后面的是上次回复之后的新消息'));
-    for (const [i, parts] of ctxs) {
-      const d = el('details', 'sctx');
-      d.id = 'ctx-' + i;
-      fold(d, 'ctx-' + i, i === ctxs.at(-1)[0]);
-      d.appendChild(el('summary', null, `第 ${i + 1} 问之前 · ${parts.filter((x) => x.who).length} 条`));
-      for (const p of parts) {
-        if (!p.who) { d.appendChild(el('div', 'note', p.text)); continue; }
-        const m = el('div', 'smsg');
-        m.append(el('div', 'smsg-h', p.who + '　' + p.at), el('div', 'smsg-b', p.text));
-        d.appendChild(m);
-      }
-      box.appendChild(d);
-    }
-  }
-
   // 每一问都有自己的卡片，这里看最新那张
   const cs = sec('飞书卡片');
-  const row = el('div', 'row2');
-  row.append(threadChip(j));
-  cs.appendChild(row);
+  cs.firstChild.append(threadChip(j));
   if (j.posted || j.status === 'running') {
     const d = el('details', 'scard');
     d.appendChild(el('summary', null, '预览最新这张'));
@@ -1631,7 +1690,7 @@ function renderStatus() {
   const n = [...jobs.values()].filter((j) => !j.test).length;
   const user = cfg.user.on ? `@我：${scopeText(cfg.user)} · 每 ${Math.round(cfg.pollMs / 1000)} 秒` : '@我：关';
   const bot = cfg.bot.on ? `@机器人${cfg.bot.name ? '（' + cfg.bot.name + '）' : ''}：${scopeText(cfg.bot)} · 实时` : '@机器人：关';
-  $('stat').textContent = `${user} · ${bot} · ${n} 条作业`;
+  $('stat').textContent = $('stat').title = `${user} · ${bot} · ${n} 条作业`;
 }
 
 /* ---------- 会话列表 / 项目候选 ---------- */
@@ -2978,7 +3037,7 @@ function renderComposer(g) {
   $('c-replybox').hidden = !src;
   if (src) $('c-reply-t').textContent = `卡片回到飞书${isP2P(src.chatId) ? '原私聊' : '原话题'}（${src.mode === 'bot' ? '机器人' : '你本人'}发）`;
   $('c-go').disabled = busy;
-  $('c-stat').textContent = busy ? '还在跑，跑完再接着问' : cErr || (src && $('c-reply').checked ? '' : '卡片只发给你自己');
+  $('c-stat').textContent = $('c-stat').title = busy ? '还在跑，跑完再接着问' : cErr || (src && $('c-reply').checked ? '' : '卡片只发给你自己');
 }
 $('c-reply').onchange = () => {
   try { localStorage.setItem('lcr.reply', $('c-reply').checked ? '1' : '0'); } catch (e) {}
@@ -2998,7 +3057,7 @@ async function sendFollow() {
     mode: from.mode === 'bot' ? 'bot' : 'user', chatId: from.chatId || '', project: (t && t.cwd) || from.project || '',
     prompt, resume: session, replyTo: reply ? src.id : undefined,
   }).catch((e) => ({ error: e.message }));
-  if (d.error) { cErr = d.error; $('c-stat').textContent = d.error; $('c-go').disabled = false; return; }
+  if (d.error) { cErr = d.error; $('c-stat').textContent = $('c-stat').title = d.error; $('c-go').disabled = false; return; }
   $('c-q').value = ''; cErr = '';
   sel = d.id; renderAll();
 }

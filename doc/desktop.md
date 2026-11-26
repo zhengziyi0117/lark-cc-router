@@ -60,7 +60,7 @@ GitHub 仓库是公开的：快照提交的作者 / 提交者固定写成 GitHub
 
 没用 electron-updater：它在 mac 上走 Squirrel.Mac，要正式的开发者签名，ad-hoc 签名装不上。
 
-**团队预置**：仓库里的 `desktop/preset.json` 是空的（向导全让用户自己填）。想给团队的包带上共享飞书应用、网关、推荐工作区 / 插件，在仓库 Settings → Secrets → Actions 里加一个 `PRESET_JSON`，内容是一整份同格式的 JSON，CI 打包前会拿它覆盖 `desktop/preset.json`。不配就是空的。
+公开安装包使用仓库里的 `desktop/preset.json`。飞书应用、网关和工作区由用户在向导里配置。安装包内的预置文件可以直接读取，公开预置只填写可公开的信息。
 
 ## 图标
 
