@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lark-cc-router — 飞书 @你，本机 Claude Code / Codex 替你查完回一张流式卡片</title>
+  <meta name="description" content="在飞书里有人 @你 或 @机器人，本机的 Claude Code 或 Codex CLI 自动翻代码、查日志、看截图，把结论以流式卡片回在原话题里。开源、本地运行、支持 macOS & Windows 桌面版。">
+  <meta property="og:title" content="lark-cc-router — 飞书里的本机 AI 排障分身">
+  <meta property="og:description" content="飞书里有人找你 → 本机 Claude Code 或 Codex 查完 → 流式卡片回在原话题下面。">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#">
+        <img src="./favicon.svg" alt="lark-cc-router 图标" width="30" height="30">
+        <span>lark<b>-cc-</b>router</span>
+      </a>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="#demo">实时演示</a>
+        <a href="#entries">双入口</a>
+        <a href="#features">核心能力</a>
+        <a href="#pipeline">工作原理</a>
+        <a href="#quickstart">快速上手</a>
+      </nav>
+      <div class="nav-actions">
+        <button id="themeToggle" class="icon-btn" type="button" aria-label="切换深浅色主题" title="切换深浅色主题">
+          <svg id="themeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+          </svg>
+        </button>
+        <a class="btn sm" href="https://github.com/zhengziyi0117/lark-cc-router" target="_blank" rel="noopener">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55v-2.1c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.25.45-2.28 1.19-3.08-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.17 1.18a10.9 10.9 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.58.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.08 0 4.41-2.7 5.39-5.26 5.67.42.36.79 1.07.79 2.15v3.19c0 .31.21.66.79.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/>
+          </svg>
+          GitHub
+        </a>
+        <a class="btn primary sm" href="#quickstart">下载安装</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="wrap hero-inner">
+      <div class="eyebrow">
+        <span class="eyebrow-dot" aria-hidden="true"></span>
+        <span>开源 · 本地运行 · macOS &amp; Windows 桌面版</span>
+        <span class="ver" data-version>v0.2.13</span>
+      </div>
+      <h1>
+        飞书里有人 <span class="hl">@你</span>，<br>
+        本机 Claude Code / Codex 替你查完回一张流式卡片
+      </h1>
+      <p class="hero-lead">
+        把跑在你自己电脑上的编码代理接入飞书群和私聊。翻代码、查日志、读截图、续话题追问——全程在本地执行，以<strong>你本人</strong>或<strong>机器人</strong>身份实时写进原话题。
+      </p>
+      <div class="hero-cta">
+        <a id="heroDownloadBtn" class="btn primary lg" href="#quickstart">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span id="heroDownloadLabel">下载桌面版</span>
+        </a>
+        <a class="btn lg" href="https://github.com/zhengziyi0117/lark-cc-router" target="_blank" rel="noopener">
+          查看源码与文档
+        </a>
+      </div>
+      <div class="hero-meta">
+        <span>无需公网服务器</span>
+        <span>·</span>
+        <span>支持 Claude Code &amp; Codex CLI</span>
+        <span>·</span>
+        <span>默认白名单与只读权限边界</span>
+        <span>·</span>
+        <a href="https://github.com/zhengziyi0117/lark-cc-router/releases/latest" target="_blank" rel="noopener">全部安装包</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Live Demo -->
+  <section id="demo" class="sim-section">
+    <div class="wrap">
+      <div class="sim-shell reveal">
+        <div class="sim-bar">
+          <div class="sim-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="sim-tabs" role="tablist" aria-label="演示场景">
+            <button class="sim-tab" role="tab" type="button" data-scene="answer" aria-selected="true">
+              <span class="badge-dot"></span>值班排障 · 要回
+            </button>
+            <button class="sim-tab" role="tab" type="button" data-scene="skip" aria-selected="false">
+              <span class="badge-dot"></span>闲聊通知 · 不用回
+            </button>
+            <button class="sim-tab" role="tab" type="button" data-scene="ask_me" aria-selected="false">
+              <span class="badge-dot"></span>需要拍板 · 转给我
+            </button>
+            <button class="sim-tab" role="tab" type="button" data-scene="stop" aria-selected="false">
+              <span class="badge-dot"></span>随时叫停 · 中断
+            </button>
+          </div>
+          <button id="simReplay" class="sim-replay" type="button">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+            重放过程
+          </button>
+        </div>
+
+        <div class="sim-grid">
+          <!-- Left: Feishu View -->
+          <div class="sim-pane">
+            <div class="pane-head">
+              <div class="pane-title">
+                <span>飞书群聊 · 线上值班群</span>
+                <span id="simEntryPill" class="pill accent">@我 · 本人身份</span>
+              </div>
+              <span id="simChatState" class="pane-sub">自动回：已开启</span>
+            </div>
+            <div id="simFeishu"></div>
+          </div>
+
+          <!-- Right: Local Console Trace -->
+          <div class="sim-pane">
+            <div class="pane-head">
+              <div class="pane-title">
+                <span>本机控制台 · 事件流</span>
+                <span id="simStatusPill" class="pill run"><span class="pulse-dot"></span> 运行中</span>
+              </div>
+              <span class="pane-sub">127.0.0.1:8787</span>
+            </div>
+            <div id="simTrace" class="trace-list" aria-live="polite"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Two Entries: @我 vs @机器人 -->
+  <section id="entries" class="section tinted">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="sec-kicker">TWO ENTRYPOINTS</div>
+        <h2>两个入口，共用模板库，可以都开也可以只开一个</h2>
+        <p>想要零侵入、不用把机器人拉进群，就用 <strong>@我</strong>；想要秒级推送和打字机流式体验，就打开 <strong>@机器人</strong>。两条路同时开着时，同一条消息同时 @ 了你和机器人，只会由机器人回一次。</p>
+      </div>
+
+      <div class="entry-grid">
+        <article class="entry-card featured reveal">
+          <div class="entry-top">
+            <div class="entry-name">@我 <span class="pill accent">默认开启</span></div>
+            <span class="pill ok">零侵入 · 免拉机器人</span>
+          </div>
+          <p class="entry-desc">
+            全程以你本人的飞书身份（<code>--as user</code>）搜索并回复，群里不需要加机器人，也不需要任何 Tenant Bot 权限。适合桌面版开箱即用。
+          </p>
+          <ul class="spec-list">
+            <li><span class="spec-k">触发方式</span><span class="spec-v">群里或私聊里有人 <strong>@你本人</strong>（不 @ 的私聊不会误触发）</span></li>
+            <li><span class="spec-k">回复身份</span><span class="spec-v"><strong>你本人</strong>（卡片直接显示成你发在原消息的话题下）</span></li>
+            <li><span class="spec-k">响应速度</span><span class="spec-v">分钟级（受飞书搜索索引延迟影响，约 1–2 分钟）</span></li>
+            <li><span class="spec-k">流式更新</span><span class="spec-v">确认要排查后才开话题，每 1.2 秒整张卡片原地刷新</span></li>
+            <li><span class="spec-k">默认策略</span><span class="spec-v">所有群默认关闭，在控制台左栏逐个打开白名单</span></li>
+          </ul>
+        </article>
+
+        <article class="entry-card reveal">
+          <div class="entry-top">
+            <div class="entry-name">@机器人 <span class="pill">可选开启</span></div>
+            <span class="pill think">秒级 · CardKit 流式</span>
+          </div>
+          <p class="entry-desc">
+            通过飞书事件长连接实时接收消息，一收到就发卡片并打字机流式输出。默认关闭，建议先将机器人默认模板设为只读后再启用。
+          </p>
+          <ul class="spec-list">
+            <li><span class="spec-k">触发方式</span><span class="spec-v">群里 <strong>@机器人</strong>，或者直接私聊机器人（不用 @）</span></li>
+            <li><span class="spec-k">回复身份</span><span class="spec-v">机器人身份发卡（读话题上下文与私聊通知仍借你本人身份）</span></li>
+            <li><span class="spec-k">响应速度</span><span class="spec-v"><strong>秒级</strong>（<code>im.message.receive_v1</code> 长连接推送）</span></li>
+            <li><span class="spec-k">流式更新</span><span class="spec-v">飞书 CardKit 原生打字机效果，无 CardKit 权限自动降级</span></li>
+            <li><span class="spec-k">防重设计</span><span class="spec-v">独立 <code>bot.db</code> 锚点存储；同时 @本人与机器人时自动由它接管</span></li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Core Features Bento -->
+  <section id="features" class="section">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="sec-kicker">CAPABILITIES</div>
+        <h2>为真实工程排障打磨的每一处细节</h2>
+        <p>不是套壳转发器，而是围绕「可信、可控、可追问、可审计」构建的本地 Agent 路由器。</p>
+      </div>
+
+      <div class="bento">
+        <article class="feat reveal">
+          <div class="feat-ico" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
+            </svg>
+          </div>
+          <h3>双引擎：Claude Code &amp; Codex</h3>
+          <p>每个模板可独立指定执行器、模型档位（<code>opus / sonnet / haiku</code>）与权限级别。支持配置多个 API 来源（公司网关 + 个人订阅），遇限流或额度耗尽自动切下一个续跑。</p>
+          <div class="feat-tags">
+            <span class="mini-tag">Claude Code</span>
+            <span class="mini-tag">Codex CLI</span>
+            <span class="mini-tag">API 自动容灾</span>
+          </div>
+        </article>
+
+        <article class="feat reveal">
+          <div class="feat-ico" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+            </svg>
+          </div>
+          <h3>智能「先判定」，不刷群</h3>
+          <p>模板开启判定后，消息先走一次轻量无工具判定：闲聊和通知直接静默跳过，需要你本人拍板的事私聊转交给你，说「不用查了」立即掐停正在跑的任务。</p>
+          <div class="feat-tags">
+            <span class="mini-tag">answer</span>
+            <span class="mini-tag">skip</span>
+            <span class="mini-tag">ask_me</span>
+            <span class="mini-tag">stop</span>
+          </div>
+        </article>
+
+        <article class="feat reveal">
+          <div class="feat-ico" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+            </svg>
+          </div>
+          <h3>话题续问 &amp; 截图上下文</h3>
+          <p>在原卡片的话题下继续 @，或私聊引用卡片追问，自动 <code>--resume</code> 上次排查的 Session。自动拉取话题历史和消息截图给模型看；上一轮还在跑时追问会自动接棒中断旧轮次。</p>
+          <div class="feat-tags">
+            <span class="mini-tag">Session 接棒</span>
+            <span class="mini-tag">话题上下文</span>
+            <span class="mini-tag">截图下载</span>
+          </div>
+        </article>
+
+        <article class="feat reveal">
+          <div class="feat-ico" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/>
+            </svg>
+          </div>
+          <h3>三栏本机控制台 &amp; 安全试跑</h3>
+          <p>打开 <code>127.0.0.1:8787</code> 即可管理会话开关、实时观看思考/工具调用时间轴与真实卡片预览。内置「试跑」与「只看判定」，卡片只发给自己不进群，调提示词零心理负担。</p>
+          <div class="feat-tags">
+            <span class="mini-tag">SSE 实时流</span>
+            <span class="mini-tag">卡片预览</span>
+            <span class="mini-tag">试跑 / 重发</span>
+          </div>
+        </article>
+
+        <article class="feat reveal">
+          <div class="feat-ico" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+          </div>
+          <h3>桌面版：向导上手 &amp; 一键同步</h3>
+          <p>不用碰终端。macOS（Apple Silicon）与 Windows 一键安装，关窗收进菜单栏/托盘常驻后台，支持后台静默更新。内置「从本机同步」，一键迁移 <code>~/.claude</code> 的 MCP、插件与 Skills。</p>
+          <div class="feat-tags">
+            <span class="mini-tag">Electron</span>
+            <span class="mini-tag">托盘常驻</span>
+            <span class="mini-tag">静默更新</span>
+          </div>
+        </article>
+
+        <article class="feat reveal">
+          <div class="feat-ico" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <h3>清晰且坦诚的安全边界</h3>
+          <p>会话默认不回；新建模板默认只读（<code>plan</code>）；控制台仅监听回环地址并校验 Host/Origin 防 DNS Rebinding；配置文件 <code>0600</code> 权限且密钥绝不下发前端；MCP 掉线自动私聊提醒你。</p>
+          <div class="feat-tags">
+            <span class="mini-tag">plan 只读边界</span>
+            <span class="mini-tag">127.0.0.1</span>
+            <span class="mini-tag">环境健康监控</span>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture Pipeline -->
+  <section id="pipeline" class="section tinted">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="sec-kicker">LIFECYCLE</div>
+        <h2>一次排查的完整生命周期</h2>
+        <p>单进程 Node 24 架构（原生 TypeScript + <code>node:sqlite</code>），无外部数据库、无消息队列、无云端中转。</p>
+      </div>
+
+      <div class="pipe">
+        <div class="pipe-step reveal">
+          <span class="pipe-num">01</span>
+          <h4>收到 @ 消息</h4>
+          <p>@我 轮询搜索或 @机器人 长连接推送，过滤未开自动回会话与非真人消息。</p>
+        </div>
+        <div class="pipe-step reveal">
+          <span class="pipe-num">02</span>
+          <h4>SQLite 去重认领</h4>
+          <p><code>INSERT OR IGNORE</code> 原子去重，跨通道同时 @ 时只由机器人接管。</p>
+        </div>
+        <div class="pipe-step reveal">
+          <span class="pipe-num">03</span>
+          <h4>先判定分流</h4>
+          <p>可选轻量判定输出 <code>answer / skip / ask_me / stop</code>，闲聊不留痕。</p>
+        </div>
+        <div class="pipe-step reveal">
+          <span class="pipe-num">04</span>
+          <h4>锚点续 Session</h4>
+          <p>匹配话题或引用卡片锚点，拉取上下文与截图；旧轮次未完自动中断接棒。</p>
+        </div>
+        <div class="pipe-step reveal">
+          <span class="pipe-num">05</span>
+          <h4>本机代理排查</h4>
+          <p>进程内并发闸调度本机 Claude Code / Codex，在目标仓库目录流式执行。</p>
+        </div>
+        <div class="pipe-step reveal">
+          <span class="pipe-num">06</span>
+          <h4>双路实时输出</h4>
+          <p>边跑边写飞书流式卡片（30KB 预算自适应），同时通过 SSE 直播到控制台。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Real Try-Run Screenshot -->
+  <section class="section">
+    <div class="wrap">
+      <div class="shot-grid">
+        <div class="reveal">
+          <div class="sec-kicker">REAL OUTPUT</div>
+          <h2 style="margin:0;font:500 clamp(24px,3vw,32px)/1.28 var(--serif);letter-spacing:-.015em">
+            卡片发成功才算完成，控制台里所见即所得
+          </h2>
+          <p style="margin:14px 0 0;color:var(--ink-2);font-size:15px">
+            控制台里的「卡片」标签页直接复用真实的飞书卡片渲染代码。排查跑完后结论全文直接呈现，过程按需折叠；如果网络波动导致卡片没发出去，点一下「重发到飞书」即可补发，无需重跑模型。
+          </p>
+          <ul class="check-list">
+            <li>
+              <span class="check-mark">✓</span>
+              <span><strong>安全试跑：</strong>输入问题选好会话，真跑一次代理，卡片以你身份只发给你自己，不进群、不污染去重库。</span>
+            </li>
+            <li>
+              <span class="check-mark">✓</span>
+              <span><strong>优雅停机：</strong>Ctrl+C 或退出应用时自动把在跑的卡片收尾成「⚠️ 已中断」，意外崩溃下次启动自动补齐。</span>
+            </li>
+            <li>
+              <span class="check-mark">✓</span>
+              <span><strong>环境健康告警：</strong>某个 MCP 掉线或插件授权过期时，主动私聊提醒你，不再默默少工具。</span>
+            </li>
+          </ul>
+        </div>
+        <div class="shot-frame reveal">
+          <img src="./assets/real-try-run.jpg" alt="lark-cc-router 真实控制台试跑生成的飞书卡片预览" loading="lazy">
+          <div class="shot-caption">真实控制台试跑卡片预览：只读模板分析源码后直接输出结论与调用链</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start -->
+  <section id="quickstart" class="section tinted">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="sec-kicker">GET STARTED</div>
+        <h2>三分钟跑起来</h2>
+        <p>不想折腾命令行就直接装桌面版，按向导点完即可；习惯终端部署或想开 @机器人，直接用源码跑 Node 24。</p>
+      </div>
+
+      <div class="qs-box reveal">
+        <div class="qs-tabs" role="tablist" aria-label="安装方式">
+          <button class="qs-tab" role="tab" type="button" data-qs="desktop" aria-selected="true">桌面版（推荐）</button>
+          <button class="qs-tab" role="tab" type="button" data-qs="cli" aria-selected="false">命令行 / 源码运行</button>
+        </div>
+
+        <!-- Desktop Panel -->
+        <div id="qs-desktop" class="qs-panel" role="tabpanel">
+          <div class="dl-grid">
+            <div id="dlMacCard" class="dl-card">
+              <div class="dl-head">
+                <h3>macOS (Apple Silicon)</h3>
+                <span id="dlMacBadge" class="pill" hidden>推荐本机</span>
+              </div>
+              <p>适用于 M1 / M2 / M3 / M4 芯片 Mac。拖入「应用程序」后支持后台自动静默更新与菜单栏常驻。</p>
+              <div class="dl-foot">
+                <a id="dlMacLink" class="btn primary sm" href="https://github.com/zhengziyi0117/lark-cc-router/releases/latest" target="_blank" rel="noopener">
+                  下载 .dmg 安装包
+                </a>
+                <span id="dlMacFile" class="dl-file">arm64 · <span data-version>v0.2.13</span></span>
+              </div>
+            </div>
+
+            <div id="dlWinCard" class="dl-card">
+              <div class="dl-head">
+                <h3>Windows (x64)</h3>
+                <span id="dlWinBadge" class="pill" hidden>推荐本机</span>
+              </div>
+              <p>NSIS 安装程序，一键安装到当前用户目录，无需管理员权限。关闭窗口自动收进右下角系统托盘。</p>
+              <div class="dl-foot">
+                <a id="dlWinLink" class="btn sm" href="https://github.com/zhengziyi0117/lark-cc-router/releases/latest" target="_blank" rel="noopener">
+                  下载 .exe 安装程序
+                </a>
+                <span id="dlWinFile" class="dl-file">x64 · <span data-version>v0.2.13</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="desktop-steps">
+            <div class="dstep">
+              <b>1. 双击打开，跟着向导走</b>
+              自动检测环境，扫码登录飞书授权，选定要排查的本地代码目录。
+            </div>
+            <div class="dstep">
+              <b>2. 一键同步本机配置</b>
+              在「设置 → Claude Code」点「从本机同步」，复用已装好的 MCP、插件与 Skills。
+            </div>
+            <div class="dstep">
+              <b>3. 选一个群打开「自动回」</b>
+              先用「试跑」发给自己验证链路，确认无误再打开目标群开关，关窗退到托盘常驻。
+            </div>
+          </div>
+        </div>
+
+        <!-- CLI Panel -->
+        <div id="qs-cli" class="qs-panel" role="tabpanel" hidden>
+          <div class="code-wrap">
+            <button class="copy-btn" type="button" data-copy="cli-cmd">复制命令</button>
+            <pre id="cli-cmd"><span class="code-c"># 0. 前置要求：Node ≥ 24、已安装 lark-cli、已登录 Claude Code 或 Codex CLI</span>
+git clone https://github.com/zhengziyi0117/lark-cc-router.git
+cd lark-cc-router
+npm i
+
+<span class="code-c"># 1. 以本人身份扫码授权飞书最小权限集（@我 入口无需任何 bot 权限）</span>
+lark-cli auth login --scope "search:message im:message.group_msg:get_as_user im:message.p2p_msg:get_as_user im:message:readonly im:message.send_as_user im:message im:chat:read im:message.reactions:read"
+
+<span class="code-c"># 2. 生成配置并启动控制台</span>
+cp config.example.json config.json
+npm start</pre>
+          </div>
+          <p class="qs-note">
+            启动后打开 <code>http://127.0.0.1:8787</code>，在模板里填好本地代码仓库路径，然后在左栏选中会话打开「自动回」。详细飞书应用建权与 <code>@机器人</code> 配置请查阅
+            <a href="https://github.com/zhengziyi0117/lark-cc-router#飞书应用与权限" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;text-underline-offset:3px">README 权限指南</a>。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Honest Fit & Non-goals -->
+  <section class="section">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="sec-kicker">HONEST SCOPE</div>
+        <h2>适合什么场景，以及它刻意不是什么</h2>
+        <p>把边界说清楚，用起来才踏实。</p>
+      </div>
+
+      <div class="fit-grid">
+        <div class="fit-card reveal">
+          <h3><span class="pill ok">适合</span> 这些日常研发场景</h3>
+          <ul>
+            <li><strong>值班被 @ 查线上问题：</strong>自动翻代码、查日志工具，查了什么、结论是什么，群里所有人都一目了然。</li>
+            <li><strong>同事询问项目实现细节：</strong>不用打断手头深度工作，把只读模板挂在项目群里随时解答接口、配置和逻辑。</li>
+            <li><strong>暂时离开电脑时：</strong>问题不急但希望有人先帮你做第一轮定位，回来时话题里已经有排查结论。</li>
+            <li><strong>复杂问题持续追问：</strong>在原话题继续 @ 或引用卡片追问，直接续上同一个排查上下文。</li>
+          </ul>
+        </div>
+
+        <div class="fit-card not reveal">
+          <h3><span class="pill accent">不是</span> 这些容易踩坑的定位</h3>
+          <ul>
+            <li><strong>不是爱插嘴的聊天机器人：</strong>开了「先判定」后，闲聊、通知、MR 卡片直接跳过，群里不留一丝噪音；需要你表态的事私聊转给你。</li>
+            <li><strong>不是对所有群放开的全权限代理：</strong>未开「自动回」绝不响应，权限按模板精细分级，面向他人的模板建议固定使用只读 <code>plan</code> 模式。</li>
+            <li><strong>@我 路线不是秒回：</strong>依赖飞书搜索索引，延迟约 1–2 分钟；如果你需要秒级打字机回复，请开启 <code>@机器人</code> 入口。</li>
+            <li><strong>卡片输出无人工确认闸门：</strong>排查一旦开卡即实时写进群里，请留意本地仓库与工具所能触达的数据范围。</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom CTA -->
+  <section class="cta-band">
+    <div class="wrap reveal">
+      <h2>把重复的群里排查，交给本机代理</h2>
+      <p>完全开源、本地运行、无云端托管。现在就下载桌面版，或者从源码启动试跑一次。</p>
+      <div class="hero-cta">
+        <a class="btn primary lg" href="https://github.com/zhengziyi0117/lark-cc-router/releases/latest" target="_blank" rel="noopener">
+          前往 Releases 下载 <span data-version>v0.2.13</span>
+        </a>
+        <a class="btn lg" href="https://github.com/zhengziyi0117/lark-cc-router" target="_blank" rel="noopener">
+          去 GitHub 点个 Star
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div style="display:flex;align-items:center;gap:10px">
+        <img src="./favicon.svg" alt="" width="20" height="20" style="border-radius:4px">
+        <span><strong>lark-cc-router</strong> · 本地运行，数据留在你自己的电脑里</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/zhengziyi0117/lark-cc-router" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/zhengziyi0117/lark-cc-router/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/zhengziyi0117/lark-cc-router/tree/release/doc" target="_blank" rel="noopener">技术文档</a>
+        <a href="https://github.com/zhengziyi0117/lark-cc-router/blob/release/doc/security.md" target="_blank" rel="noopener">安全边界</a>
+        <a href="https://github.com/zhengziyi0117/lark-cc-router/issues" target="_blank" rel="noopener">反馈问题</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
