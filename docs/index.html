@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>lark-cc-router | 飞书里的本机 Claude Code 与 Codex 代理路由器</title>
-  <meta name="description" content="在飞书群聊或私聊中有人 @你 或 @机器人，本机的 Claude Code 或 Codex CLI 自动翻代码、查日志、调工具、看截图，并将结果以流式卡片回复在原话题里。">
-  <meta property="og:title" content="lark-cc-router | 飞书里的本机 AI 代理路由器">
-  <meta property="og:description" content="飞书里有人找你，本机 Claude Code 或 Codex 查完后以流式卡片回复在原话题下面。">
+  <title>lark-cc-router | 直接复用你本机的 Claude Code 与 Codex 回复飞书</title>
+  <meta name="description" content="不用重新配置环境，直接复用你电脑上的 Claude Code 或 Codex CLI（含本机仓库、MCP、Skills、插件与模型配置），有人在飞书 @你 时自动查完并流式回复卡片。">
+  <meta property="og:title" content="lark-cc-router | 复用本机 Claude Code 与 Codex 回复飞书">
+  <meta property="og:description" content="不用重新配置工具链，直接调用你日常开发在用的 Claude Code 或 Codex CLI，把答案流式回在飞书原话题。">
   <meta property="og:type" content="website">
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,7 +16,7 @@
 </head>
 <body>
 
-  <!-- Borderless Header at y=0, gains clean surface separation on scroll -->
+  <!-- Borderless Header at y=0, gains frosted separation on scroll -->
   <header class="nav" id="siteNav">
     <div class="wrap nav-inner">
       <a class="brand" href="#">
@@ -24,11 +24,11 @@
         <span>lark-cc-router</span>
       </a>
       <nav class="nav-links" aria-label="主导航">
-        <a href="#workbench">实时演示</a>
-        <a href="#entries">双入口</a>
-        <a href="#features">核心能力</a>
-        <a href="#pipeline">工作流程</a>
-        <a href="#quickstart">快速上手</a>
+        <a href="#workbench">现场演示</a>
+        <a href="#reuse">零重配复用</a>
+        <a href="#showcase">交互机制</a>
+        <a href="#output">真实卡片</a>
+        <a href="#quickstart">下载安装</a>
       </nav>
       <div class="nav-actions">
         <a class="nav-ext" href="https://github.com/zhengziyi0117/lark-cc-router" target="_blank" rel="noopener">GitHub</a>
@@ -44,15 +44,15 @@
   </header>
 
   <main>
-    <!-- Hero: bleeds to y=0, starts directly with monumental H1 + inline brand token, 1 concise lead, 1 primary CTA, rising into wide interactive workbench -->
+    <!-- Hero: Monumental H1 + Wide Interactive Workbench -->
     <section class="hero">
       <div class="hero-wash" aria-hidden="true"></div>
       <div class="wrap hero-head">
         <h1>
-          飞书里有人<span class="at-token" aria-label="@"><img src="./favicon.svg" alt="" width="48" height="48"></span>你，<span class="nowrap">本机代理</span>替你查完<span class="nowrap">流式回在原话题</span>
+          飞书里有人<span class="at-token" aria-label="@"><img src="./favicon.svg" alt="" width="48" height="48"></span>你，<span class="nowrap">用本机</span> <span class="nowrap">Claude Code 与 Codex</span> <span class="nowrap">直接答复</span>
         </h1>
         <p class="hero-sub">
-          把你电脑上的 Claude Code 或 Codex CLI 接入飞书群聊与私聊，翻代码、查日志、调工具，结果实时写进卡片。
+          不用重新配置工具链，直接复用你日常开发在用的仓库、MCP、Skills 与插件，查完把流式卡片回在原话题。
         </p>
         <div class="hero-action">
           <a id="heroDownloadBtn" class="btn-primary" href="#quickstart">
@@ -62,7 +62,7 @@
         </div>
       </div>
 
-      <!-- Wide Interactive Dark-Ink Workbench Stage visible above the fold -->
+      <!-- Wide Interactive Dark-Ink Workbench -->
       <div class="wrap workbench-wrap" id="workbench">
         <div class="workbench">
           <div class="wb-bar">
@@ -74,9 +74,9 @@
             </div>
 
             <div class="wb-controls">
-              <div class="seg seg-compact" role="group" aria-label="切换入口模式">
-                <button class="seg-btn" type="button" data-entry="user" aria-pressed="true">@我</button>
-                <button class="seg-btn" type="button" data-entry="bot" aria-pressed="false">@机器人</button>
+              <div class="seg seg-compact" role="group" aria-label="切换本机执行器">
+                <button class="seg-btn" type="button" data-engine="claude" aria-pressed="true">Claude Code</button>
+                <button class="seg-btn" type="button" data-engine="codex" aria-pressed="false">Codex CLI</button>
               </div>
               <button id="simReplay" class="wb-replay" type="button" aria-label="重放当前演示">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -92,7 +92,7 @@
             <div class="wb-col wb-feishu">
               <div class="wb-col-head">
                 <span class="wb-col-title">飞书群聊 · 项目研发群</span>
-                <span id="wbEntryMeta" class="wb-col-meta">@我 · 以本人身份回复</span>
+                <span id="wbEngineMeta" class="wb-col-meta">执行器：本机 Claude Code</span>
               </div>
               <div id="simFeishu" class="wb-feishu-body"></div>
             </div>
@@ -111,169 +111,65 @@
       </div>
     </section>
 
-    <!-- Band 1: Two Entrypoints (Clean Hairline Matrix, zero nested card cages) -->
-    <section id="entries" class="section">
-      <div class="wrap">
-        <div class="sec-head reveal">
-          <h2>两个入口，共用同一套模板库</h2>
-          <p>想零侵入、不用把机器人拉进群，默认用 @我；需要长连接秒级响应与打字机流式输出，再按需打开 @机器人。同一条消息同时 @ 了你和机器人时，只会由机器人回复一次。</p>
-        </div>
-
-        <div class="entry-matrix reveal">
-          <div class="entry-col entry-primary">
-            <div class="entry-head">
-              <h3>@我</h3>
-              <span class="entry-note">默认开启，桌面版主推</span>
-            </div>
-            <p class="entry-summary">全程以你本人的飞书身份搜索并回复，无需把机器人拉进群，也不需要任何 Bot 权限。</p>
-            <dl class="spec-dl">
-              <div>
-                <dt>触发条件</dt>
-                <dd>群聊或私聊中有人 @你本人，未 @ 的私聊不会误触发</dd>
-              </div>
-              <div>
-                <dt>回复身份</dt>
-                <dd>你本人，卡片直接挂在原消息的话题下面</dd>
-              </div>
-              <div>
-                <dt>响应速度</dt>
-                <dd>分钟级，受飞书搜索索引延迟影响，约 1 至 2 分钟</dd>
-              </div>
-              <div>
-                <dt>卡片刷新</dt>
-                <dd>判定需要答复后才建话题，每 1.2 秒整张原地更新</dd>
-              </div>
-              <div>
-                <dt>默认范围</dt>
-                <dd>所有会话默认关闭，在控制台左栏逐个打开自动回</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div class="entry-col">
-            <div class="entry-head">
-              <h3>@机器人</h3>
-              <span class="entry-note">可选开启，长连接推送</span>
-            </div>
-            <p class="entry-summary">通过事件长连接实时接收消息，一收到就发卡并流式输出，建议将默认模板设为只读后再启用。</p>
-            <dl class="spec-dl">
-              <div>
-                <dt>触发条件</dt>
-                <dd>群聊中 @机器人，或直接私聊机器人（私聊无需 @）</dd>
-              </div>
-              <div>
-                <dt>回复身份</dt>
-                <dd>机器人身份发卡，读话题上下文与私聊提醒借你本人身份</dd>
-              </div>
-              <div>
-                <dt>响应速度</dt>
-                <dd>秒级，通过 <code>im.message.receive_v1</code> 长连接直推</dd>
-              </div>
-              <div>
-                <dt>卡片刷新</dt>
-                <dd>飞书 CardKit 原生打字机流式输出，缺权限自动降级</dd>
-              </div>
-              <div>
-                <dt>数据隔离</dt>
-                <dd>独立 <code>bot.db</code> 维护锚点与去重，开关互不干扰</dd>
-              </div>
-            </dl>
+    <!-- Band 1: The Core Differentiator: Zero-Reconfig Local Claude Code & Codex Reuse -->
+    <section id="reuse" class="section">
+      <div class="wrap reuse-split">
+        <div class="reuse-copy reveal">
+          <h2>不用重新配置，直接复用你本机的开发环境</h2>
+          <p>不需要把代码传上云，也不用在机器人平台重新配一遍接口和权限。你平时写代码怎么用 Claude Code 或 Codex，飞书里就怎么帮你干活。</p>
+          <div class="seg reuse-seg" role="tablist" aria-label="查看执行器复用方式">
+            <button class="seg-btn" role="tab" type="button" data-reuse="claude" aria-selected="true">Claude Code</button>
+            <button class="seg-btn" role="tab" type="button" data-reuse="codex" aria-selected="false">Codex CLI</button>
           </div>
         </div>
+
+        <div class="reuse-visual reveal" id="reuseVisual" aria-live="polite"></div>
       </div>
     </section>
 
-    <!-- Band 2: Capabilities (Asymmetric Editorial Split, hairline-ruled 2-col index, zero card cages/chips) -->
-    <section id="features" class="section section-alt">
-      <div class="wrap split-editorial">
-        <div class="split-sticky reveal">
-          <h2>为真实团队协作打磨的细节</h2>
-          <p>不是把消息原样扔给大模型的转发器，而是围绕可控、可追问、可审计构建的本地代理路由器。</p>
-        </div>
-
-        <div class="cap-grid">
-          <article class="cap-item reveal" style="--delay:0ms">
-            <h3>双引擎与多来源容灾</h3>
-            <p>每个模板可独立指定 Claude Code 或 Codex CLI、模型档位与权限模式。配置多个 API 来源（公司网关与个人订阅）后，遇限流或额度耗尽自动切换下一个继续完成。</p>
-          </article>
-
-          <article class="cap-item reveal" style="--delay:60ms">
-            <h3>先判定再回复，群里零噪音</h3>
-            <p>开启判定后，消息先经过一次无工具轻量判断，分流为要回、不用回、转给我或叫停。闲聊和公告静默跳过不留痕迹，需要你拍板的事私聊转交给你。</p>
-          </article>
-
-          <article class="cap-item reveal" style="--delay:120ms">
-            <h3>原话题续问与截图上下文</h3>
-            <p>在卡片所在话题继续 @，或私聊引用卡片追问，自动续上同一个本地 Session。话题历史与消息里的截图会一并交给代理；上一轮未结束时，新追问自动中断旧轮次接棒。</p>
-          </article>
-
-          <article class="cap-item reveal" style="--delay:60ms">
-            <h3>按对话聚合的本机控制台</h3>
-            <p>打开 <code>127.0.0.1:8787</code> 实时查看思考、工具入参与耗时时间轴，重启后依然能从记录找回完整对话并直接接着问。内置试跑与只看判定，卡片只发给自己不进群。</p>
-          </article>
-
-          <article class="cap-item reveal" style="--delay:120ms">
-            <h3>开箱即用的桌面端与本机同步</h3>
-            <p>提供 macOS Apple Silicon 与 Windows 安装包，向导式引导配置，关窗退到菜单栏或系统托盘常驻并后台静默更新。一键从 <code>~/.claude</code> 同步本机 MCP、插件与 Skills。</p>
-          </article>
-
-          <article class="cap-item reveal" style="--delay:180ms">
-            <h3>清晰且坦诚的安全边界</h3>
-            <p>未开自动回的会话绝不响应，新建模板默认只读 <code>plan</code> 模式。控制台仅监听回环地址并防跨站与 DNS Rebinding，配置文件保持 <code>0600</code> 权限且密钥绝不下发前端。</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <!-- Band 3: Full-Bleed Dark-Ink Interactive 6-Step Lifecycle -->
-    <section id="pipeline" class="section section-ink">
+    <!-- Band 2: Interactive Visual Mechanism Stage (Full-Bleed Dark Ink, Replaces All Long Text Sections) -->
+    <section id="showcase" class="section section-ink">
       <div class="wrap">
-        <div class="sec-head reveal">
-          <h2>从一条 @ 到一张卡片的六步闭环</h2>
-          <p>单进程 Node 24 架构，原生运行 TypeScript 与 <code>node:sqlite</code>，不依赖外部数据库或云端中转。点击下方任意步骤查看每一步的职责与模块。</p>
+        <div class="showcase-head reveal">
+          <h2>放进工作群里，安静、可控、能接着问</h2>
+          <p>点击左侧任一机制，直接看它在飞书和本机上的实际表现。</p>
         </div>
 
-        <div class="pipe-steps reveal" role="tablist" aria-label="六步闭环流程">
-          <button class="pipe-btn" role="tab" type="button" data-step="0" aria-selected="true">
-            <span class="pipe-idx">1</span>
-            <span class="pipe-name">收到消息</span>
-          </button>
-          <button class="pipe-btn" role="tab" type="button" data-step="1" aria-selected="false">
-            <span class="pipe-idx">2</span>
-            <span class="pipe-name">去重认领</span>
-          </button>
-          <button class="pipe-btn" role="tab" type="button" data-step="2" aria-selected="false">
-            <span class="pipe-idx">3</span>
-            <span class="pipe-name">先做判定</span>
-          </button>
-          <button class="pipe-btn" role="tab" type="button" data-step="3" aria-selected="false">
-            <span class="pipe-idx">4</span>
-            <span class="pipe-name">锚点接棒</span>
-          </button>
-          <button class="pipe-btn" role="tab" type="button" data-step="4" aria-selected="false">
-            <span class="pipe-idx">5</span>
-            <span class="pipe-name">本机执行</span>
-          </button>
-          <button class="pipe-btn" role="tab" type="button" data-step="5" aria-selected="false">
-            <span class="pipe-idx">6</span>
-            <span class="pipe-name">流式写卡</span>
-          </button>
-        </div>
+        <div class="showcase-grid reveal">
+          <div class="showcase-nav" role="tablist" aria-label="核心机制演示">
+            <button class="sc-tab" role="tab" type="button" data-sc="judge" aria-selected="true">
+              <h3>先判定再回复</h3>
+              <span>闲聊跳过不刷群，要你拍板的事私聊转交。</span>
+            </button>
+            <button class="sc-tab" role="tab" type="button" data-sc="session" aria-selected="false">
+              <h3>原话题续问与读截图</h3>
+              <span>群里接着 @ 自动续上同一 Session，截图一并送给模型。</span>
+            </button>
+            <button class="sc-tab" role="tab" type="button" data-sc="entry" aria-selected="false">
+              <h3>@我 与 @机器人 按需选</h3>
+              <span>默认 @我 免拉机器人，要秒级打字机可再开 @机器人。</span>
+            </button>
+            <button class="sc-tab" role="tab" type="button" data-sc="guard" aria-selected="false">
+              <h3>明确的安全边界</h3>
+              <span>会话默认全关，新建模板默认只读，控制台仅限本机访问。</span>
+            </button>
+          </div>
 
-        <div class="pipe-detail reveal" id="pipeDetail" aria-live="polite"></div>
+          <div class="showcase-canvas" id="showcaseCanvas" aria-live="polite"></div>
+        </div>
       </div>
     </section>
 
-    <!-- Band 4: Real Output Showcase -->
+    <!-- Band 3: Real Feishu Card Output (Visual-First, Ultra-Concise) -->
     <section id="output" class="section">
       <div class="wrap output-split">
         <div class="output-copy reveal">
-          <h2>卡片发成功才算完成，控制台所见即所得</h2>
-          <p>控制台里的卡片预览直接复用真实的飞书卡片渲染代码。任务结束后结论全文直接展开，排查过程收进折叠区；如果网络波动导致收尾帧没改上，点击「重发到飞书」即可补发，不用重跑模型。</p>
-          <ul class="plain-list">
-            <li><strong>安全试跑：</strong>输入问题并选好目标会话，卡片以你的身份只发给你自己，不进群、不写入去重库。</li>
-            <li><strong>优雅停机：</strong>退出应用时自动将在跑的卡片收尾为「已中断」，意外崩溃下次启动自动补齐。</li>
-            <li><strong>环境健康告警：</strong>本机某个 MCP 掉线或插件授权过期时，主动私聊提醒你，不再默默缺少工具。</li>
+          <h2>卡片发成功才算完成</h2>
+          <p>控制台里的卡片预览直接复用真实渲染代码。结论全文直接展示，过程按需折叠，支持一键试跑与漏发重发。</p>
+          <ul class="concise-list">
+            <li><strong>试跑不进群</strong>：卡片只发给你自己，调提示词零打扰</li>
+            <li><strong>网络抖动可补发</strong>：点「重发到飞书」直接重发结论，不重跑模型</li>
+            <li><strong>退出自动收尾</strong>：在跑的卡片自动标成已中断，不留悬空状态</li>
           </ul>
         </div>
 
@@ -281,18 +177,18 @@
           <button class="shot-btn" id="shotTrigger" type="button" aria-label="点击放大查看真实飞书卡片预览">
             <img src="./assets/real-try-run.jpg" alt="lark-cc-router 真实控制台试跑生成的飞书卡片预览" loading="lazy">
           </button>
-          <figcaption>真实控制台试跑生成的飞书卡片预览，点击查看大图</figcaption>
+          <figcaption>真实控制台试跑卡片预览，点击查看大图</figcaption>
         </figure>
       </div>
     </section>
 
-    <!-- Band 5: Quick Start (Clean Tabbed Band, zero card-in-card cages) -->
+    <!-- Band 4: Compact Quick Start (Download + CLI) -->
     <section id="quickstart" class="section section-alt">
       <div class="wrap">
         <div class="qs-header reveal">
           <div>
-            <h2>三分钟在本地跑起来</h2>
-            <p>日常使用直接装桌面版，按向导点完即可；习惯终端管理或需要同时开启 @机器人，直接用 Node 24 运行源码。</p>
+            <h2>下载即用，三分钟跑起来</h2>
+            <p>桌面版自带上手向导与托盘常驻；习惯终端也可以直接用 Node 24 启动源码。</p>
           </div>
           <div class="seg" role="tablist" aria-label="安装方式">
             <button class="seg-btn" role="tab" type="button" data-qs="desktop" aria-selected="true">桌面版</button>
@@ -300,25 +196,22 @@
           </div>
         </div>
 
-        <!-- Desktop Panel -->
         <div id="qs-desktop" class="qs-panel reveal" role="tabpanel">
           <div class="dl-rows">
-            <div id="dlMacRow" class="dl-row">
+            <div class="dl-row">
               <div class="dl-info">
                 <h3>macOS (Apple Silicon)</h3>
-                <p>适用于 M1 / M2 / M3 / M4 芯片 Mac。拖入「应用程序」后支持菜单栏常驻与后台静默更新。</p>
-                <span id="dlMacFile" class="dl-meta">arm64 安装包 · <span data-version>v0.2.13</span></span>
+                <span id="dlMacFile" class="dl-meta">M1 至 M4 芯片 · 菜单栏常驻 · 后台静默更新 · <span data-version>v0.2.13</span></span>
               </div>
               <a id="dlMacLink" class="btn-primary" href="https://github.com/zhengziyi0117/lark-cc-router/releases/latest" target="_blank" rel="noopener">
                 下载 .dmg
               </a>
             </div>
 
-            <div id="dlWinRow" class="dl-row">
+            <div class="dl-row">
               <div class="dl-info">
                 <h3>Windows (x64)</h3>
-                <p>一键安装到当前用户目录，无需管理员权限。关闭窗口自动收进右下角系统托盘持续运行。</p>
-                <span id="dlWinFile" class="dl-meta">x64 安装程序 · <span data-version>v0.2.13</span></span>
+                <span id="dlWinFile" class="dl-meta">免管理员一键安装 · 系统托盘常驻 · <span data-version>v0.2.13</span></span>
               </div>
               <a id="dlWinLink" class="btn-outline" href="https://github.com/zhengziyi0117/lark-cc-router/releases/latest" target="_blank" rel="noopener">
                 下载 .exe
@@ -326,89 +219,28 @@
             </div>
           </div>
 
-          <ol class="setup-steps">
-            <li>
-              <h3>双击打开，跟着向导完成授权</h3>
-              <p>应用自动检测本机环境，扫码完成飞书最小权限授权，并选定你要让代理读取的本地代码目录。</p>
-            </li>
-            <li>
-              <h3>一键同步本机工具链</h3>
-              <p>在「设置 → Claude Code」点击「从本机同步」，把已装好的 MCP、插件、Skills 与 <code>CLAUDE.md</code> 直接搬过来。</p>
-            </li>
-            <li>
-              <h3>试跑通过后打开目标群开关</h3>
-              <p>先点「试跑」把卡片发给自己验证链路，确认满意再在目标会话顶部打开「自动回」，关窗退到托盘常驻。</p>
-            </li>
-          </ol>
+          <div class="step-strip">
+            <span><strong>1.</strong> 双击打开，扫码完成飞书授权</span>
+            <span><strong>2.</strong> 一键同步本机 Claude Code 或连接 Codex</span>
+            <span><strong>3.</strong> 选一个群打开「自动回」，关窗退到托盘</span>
+          </div>
         </div>
 
-        <!-- CLI Panel -->
         <div id="qs-cli" class="qs-panel" role="tabpanel" hidden>
           <div class="code-block">
             <div class="code-bar">
-              <span>Node ≥ 24 · lark-cli · Claude Code 或 Codex CLI</span>
+              <span>Node ≥ 24 · lark-cli · 已登录 Claude Code 或 Codex CLI</span>
               <button class="copy-btn" type="button" data-copy="cli-cmd">复制命令</button>
             </div>
-            <pre id="cli-cmd"><span class="code-c"># 1. 克隆仓库并安装依赖</span>
-git clone https://github.com/zhengziyi0117/lark-cc-router.git
-cd lark-cc-router
-npm i
-
-<span class="code-c"># 2. 以本人身份扫码授权飞书最小权限集（@我 入口无需任何 bot 权限）</span>
+            <pre id="cli-cmd">git clone https://github.com/zhengziyi0117/lark-cc-router.git &amp;&amp; cd lark-cc-router &amp;&amp; npm i
 lark-cli auth login --scope "search:message im:message.group_msg:get_as_user im:message.p2p_msg:get_as_user im:message:readonly im:message.send_as_user im:message im:chat:read im:message.reactions:read"
-
-<span class="code-c"># 3. 生成配置并启动本机控制台</span>
-cp config.example.json config.json
-npm start</pre>
+cp config.example.json config.json &amp;&amp; npm start</pre>
           </div>
           <p class="qs-footnote">
-            启动后访问 <code>http://127.0.0.1:8787</code>，在模板里配置本地项目目录，然后在左栏选中会话打开「自动回」。完整飞书应用建权与 <code>@机器人</code> 长连接配置请查阅
-            <a class="text-link" href="https://github.com/zhengziyi0117/lark-cc-router#飞书应用与权限" target="_blank" rel="noopener">README 权限指南</a>。
+            打开 <code>http://127.0.0.1:8787</code> 绑定目录并打开会话开关即可。完整权限配置见
+            <a class="text-link" href="https://github.com/zhengziyi0117/lark-cc-router#飞书应用与权限" target="_blank" rel="noopener">README 文档</a>。
           </p>
         </div>
-      </div>
-    </section>
-
-    <!-- Band 6: Honest Scope -->
-    <section id="scope" class="section">
-      <div class="wrap">
-        <div class="sec-head reveal">
-          <h2>它擅长什么，以及它刻意不做哪些事</h2>
-          <p>把能力边界写明白，放进工作群里才用得踏实。</p>
-        </div>
-
-        <div class="scope-grid reveal">
-          <div class="scope-col">
-            <h3>适合的日常协作</h3>
-            <ul class="plain-list">
-              <li><strong>解答代码实现与业务口径：</strong>把只读模板挂在项目群里，同事问接口、配置或逻辑时不必打断你手头的深度工作。</li>
-              <li><strong>查数据、翻日志与联动 MCP：</strong>直接复用本机已接好的监控、文档和查询工具，查了什么、结论是什么，群里所有人一目了然。</li>
-              <li><strong>离开电脑或值班被 @ 时：</strong>问题不急但希望先完成第一轮信息收集与定位，回来时话题里已经有清晰结论。</li>
-              <li><strong>复杂问题持续追问：</strong>在原话题继续 @ 或引用卡片追问，直接续上同一轮上下文，不用从头描述背景。</li>
-            </ul>
-          </div>
-
-          <div class="scope-col">
-            <h3>刻意划清的边界</h3>
-            <ul class="plain-list">
-              <li><strong>不是爱插嘴的聊天机器人：</strong>开启「先判定」后，闲聊、通知与 MR 卡片直接静默跳过，需要你本人表态的问题私聊转交给你。</li>
-              <li><strong>不是全群放开的全权限代理：</strong>未打开「自动回」的会话绝不响应，权限按模板分级，面向他人的模板建议固定为只读 <code>plan</code> 模式。</li>
-              <li><strong>@我 路线并非秒回：</strong>受飞书搜索索引影响延迟约 1 至 2 分钟，需要秒级打字机流式回复请启用 <code>@机器人</code>。</li>
-              <li><strong>卡片输出没有人工确认闸门：</strong>一旦开卡即边跑边写进群里，请留意目标仓库与本地工具可触达的数据范围。</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Closing Band: Single Primary CTA -->
-    <section class="closing">
-      <div class="wrap closing-inner reveal">
-        <h2>把群里重复的「帮我看下」，交给本机代理</h2>
-        <p>完全开源、本地运行、无云端托管，现在就可以下载桌面版或从源码试跑一次。</p>
-        <a class="btn-primary" href="https://github.com/zhengziyi0117/lark-cc-router/releases/latest" target="_blank" rel="noopener">
-          前往 Releases 下载 <span class="btn-ver" data-version>v0.2.13</span>
-        </a>
       </div>
     </section>
   </main>
@@ -417,14 +249,14 @@ npm start</pre>
     <div class="wrap footer-inner">
       <div class="footer-brand">
         <img src="./favicon.svg" alt="" width="20" height="20">
-        <span>lark-cc-router，数据始终留在你自己的电脑里。</span>
+        <span>lark-cc-router，开源、本地运行，数据留在你自己的电脑里。</span>
       </div>
       <div class="footer-links">
         <a href="https://github.com/zhengziyi0117/lark-cc-router" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/zhengziyi0117/lark-cc-router/releases" target="_blank" rel="noopener">Releases</a>
-        <a href="https://github.com/zhengziyi0117/lark-cc-router/tree/release/doc" target="_blank" rel="noopener">技术文档</a>
+        <a href="https://github.com/zhengziyi0117/lark-cc-router/tree/release/doc" target="_blank" rel="noopener">文档</a>
         <a href="https://github.com/zhengziyi0117/lark-cc-router/blob/release/doc/security.md" target="_blank" rel="noopener">安全边界</a>
-        <a href="https://github.com/zhengziyi0117/lark-cc-router/issues" target="_blank" rel="noopener">反馈问题</a>
+        <a href="https://github.com/zhengziyi0117/lark-cc-router/issues" target="_blank" rel="noopener">反馈</a>
       </div>
     </div>
   </footer>
