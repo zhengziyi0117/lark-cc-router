@@ -18,6 +18,9 @@ export interface Handled {
   reason?: string;
   /** 飞书卡片没发出去 / 没改上（见 bus 的 Job.sendError） */
   sendError?: string;
+  /** 用量（token）：最后一次调模型时的上下文、一共输出了多少。跑着就在写，见 agent 的 Usage */
+  ctx?: number;
+  out?: number;
 }
 
 /**
@@ -72,6 +75,10 @@ export class Db {
     const cols = new Set((this.db.prepare(`PRAGMA table_info(handled)`).all() as any[]).map((c) => c.name));
     // card_msg / card_entity：发出去的卡片（消息 id；机器人的流式卡片还有卡片实体 id），死在半路时启动后靠它补收尾
     for (const c of ['session_id', 'reason', 'card_msg', 'card_entity', 'send_error']) if (!cols.has(c)) this.db.exec(`ALTER TABLE handled ADD COLUMN ${c} TEXT`);
+    for (const c of ['ctx_tokens', 'out_tokens']) if (!cols.has(c)) this.db.exec(`ALTER TABLE handled ADD COLUMN ${c} INTEGER`);
+    // 老版本 session 只在跑完时落库，进程死在半路的作业没有 —— 卡片发出去过的，从锚点表找回来（web UI 接着问要靠它）
+    this.db.exec(`UPDATE handled SET session_id = (SELECT session_id FROM threads WHERE thread_id = handled.card_msg)
+                  WHERE session_id IS NULL AND card_msg IS NOT NULL`);
     this.orphans = (this.db.prepare(`SELECT msg_id, who, q, session_id, card_msg, card_entity FROM handled WHERE status = 'running' AND card_msg IS NOT NULL`).all() as any[])
       .map((r) => ({ msgId: r.msg_id, who: r.who, q: r.q, session: r.session_id ?? undefined, card: r.card_msg, entity: r.card_entity ?? undefined }));
     // 上一轮进程死在半路的作业会永远挂在 running，启动时收个尾
@@ -90,6 +97,23 @@ export class Db {
   /** 卡片发出去了就记下：进程死在半路的话，下次启动靠它把卡片补成「已中断」（见 orphans） */
   setCard(msgId: string, card: string, entity?: string): void {
     this.db.prepare(`UPDATE handled SET card_msg = ?, card_entity = ? WHERE msg_id = ?`).run(card, entity ?? null, msgId);
+  }
+
+  /** session 一有就落库，不等跑完：进程死在半路的作业，web UI 上也还能接着问 */
+  setJobSession(msgId: string, session: string): void {
+    this.db.prepare(`UPDATE handled SET session_id = ? WHERE msg_id = ?`).run(session, msgId);
+  }
+
+  /** 用量跟着事件流一路写：跑到一半进程没了，也知道当时用了多少 */
+  setUsage(msgId: string, ctx: number, out: number): void {
+    this.db.prepare(`UPDATE handled SET ctx_tokens = ?, out_tokens = ? WHERE msg_id = ?`).run(ctx, out, msgId);
+  }
+
+  /** 还没记过用量的作业所在的 session 里的全部作业（按时间）。need = 这条要补。见 pipeline 的 backfillUsage */
+  needUsage(): { msgId: string; q: string; session: string; need: boolean }[] {
+    return (this.db.prepare(`SELECT msg_id, q, session_id, ctx_tokens IS NULL AS need FROM handled WHERE session_id IN
+      (SELECT session_id FROM handled WHERE ctx_tokens IS NULL AND session_id IS NOT NULL) ORDER BY started_at, rowid`).all() as any[])
+      .map((r) => ({ msgId: r.msg_id, q: r.q, session: r.session_id, need: !!r.need }));
   }
 
   /** 「再跑一次」：忘掉处理过这条，好让它重新认领。话题 → session 的映射在另一张表，不动，重跑照样接得上 */
@@ -185,6 +209,8 @@ export class Db {
       session: r.session_id ?? undefined,
       reason: r.reason ?? undefined,
       sendError: r.send_error ?? undefined,
+      ctx: r.ctx_tokens ?? undefined,
+      out: r.out_tokens ?? undefined,
     }));
   }
 

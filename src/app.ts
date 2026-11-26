@@ -4,7 +4,7 @@ import { loadConfig, scopeOf, type Config } from './config.ts';
 import { userAuth } from './lark.ts';
 import { Pool } from './store.ts';
 import { Db } from './db.ts';
-import { pollGroups, drain, log, startBot, closeOrphans } from './pipeline.ts';
+import { pollGroups, drain, log, startBot, closeOrphans, backfillUsage } from './pipeline.ts';
 import { startWeb } from './web.ts';
 import { subscribe } from './bus.ts';
 
@@ -70,6 +70,7 @@ export async function start(o: { strict?: boolean; port?: number } = {}): Promis
   // 上回没走正常停机就没了的作业：卡片补成「已中断」。不等它，飞书慢也别拖住启动
   void closeOrphans(dbs.user, 'user');
   void closeOrphans(dbs.bot, 'bot');
+  void backfillUsage(dbs.user).then(() => backfillUsage(dbs.bot)).catch((e) => log(`补用量失败（不影响运行）: ${e.message}`));
 
   let missing = await preflight(cfg);
   if (missing.length) {

@@ -12,7 +12,7 @@
  *     --virtual-time-budget=4000 --screenshot=/tmp/shot.png \
  *     "file:///<打印出来的路径>"
  *
- * URL 后面可以带 #card / #cfg / #cfg-general / #cfg-adv / #chat / #run / #empty 直接切到卡片页签 / 设置（模板）/ 设置（通用）/
+ * URL 后面可以带 #card（侧栏里的卡片预览）/ #cfg / #cfg-general / #cfg-adv / #chat / #run / #empty 直接切到卡片页签 / 设置（模板）/ 设置（通用）/
  * 设置（高级展开）/ 选中一个会话 / 试跑弹窗 / 空状态。
  * 深色版一并生成（把 prefers-color-scheme 的媒体查询掰成 always）。
  */
@@ -171,7 +171,7 @@ html = html.replace("const es = new EventSource('/api/events');", 'const es = ne
 html = html.replace('</body>', `<script>
 fire({ data: JSON.stringify({ type: 'config', config: window.__MOCK.config }) });
 fire({ data: JSON.stringify({ type: 'snapshot', jobs: location.hash === '#empty' ? [] : window.__MOCK.jobs }) });
-if (location.hash === '#card') document.querySelectorAll('.tabs button')[1].click();
+if (location.hash === '#card') document.querySelector('.scard')?.setAttribute('open', '');
 if (location.hash === '#cfg') openSettings('排障');
 if (location.hash === '#cfg-general') openSettings(GENERAL);
 if (location.hash === '#cfg-adv') { advOpen = true; openSettings('排障'); document.getElementById('set-body').scrollTop = 9999; }

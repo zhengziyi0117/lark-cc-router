@@ -161,7 +161,7 @@ code,.mono{font-family:var(--mono);font-size:.92em}
 
 /* 右栏详情 */
 .main{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--bg)}
-.dhead{flex:none;background:var(--surface);border-bottom:1px solid var(--line);padding:18px 24px 0}
+.dhead{flex:none;background:var(--surface);border-bottom:1px solid var(--line);padding:18px 24px 12px}
 .dhead h2{margin:0 0 4px;font:500 21px/1.3 var(--serif);letter-spacing:-.005em}
 .dmeta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--ink-3);font-size:12.5px}
 /* 头部的「详情」：项目全路径、网关、模型、会话 ID 这些不常看的收在这里，点开是一张小 kv 表 */
@@ -172,12 +172,8 @@ button.hinfo-btn[aria-expanded=true]::after{content:" ▴"}
   grid-template-columns:auto 1fr;gap:3px 12px;font-size:12px}
 .kv.hinfo dd{font-size:11.5px}
 .hinfo-bad{color:var(--bad)}
-.toolbar{display:flex;align-items:center;gap:8px;margin:12px 0 0}
-.tabs{display:flex;gap:2px}
-.tabs button{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;
-  color:var(--ink-3);padding:6px 10px;font-weight:600;font-size:13px}
-.tabs button:hover{color:var(--ink)}
-.tabs button[aria-selected=true]{color:var(--accent);border-bottom-color:var(--accent)}
+.toolbar{display:flex;align-items:center;gap:8px;margin:8px 0 0;flex-wrap:wrap}
+.toolbar button[aria-pressed=true]{background:var(--sel);color:var(--ink)}
 .seg{display:flex;border:1px solid var(--rule);border-radius:var(--rs);overflow:hidden}
 .seg button{border:none;border-radius:0;background:none;color:var(--ink-3);padding:4px 9px;font-size:12px}
 .seg button+button{border-left:1px solid var(--rule)}
@@ -261,11 +257,67 @@ button.hinfo-btn[aria-expanded=true]::after{content:" ▴"}
 .ev summary:hover{color:var(--accent)}
 pre{margin:6px 0 0;padding:9px 11px;background:var(--sunk);border:1px solid var(--line);border-radius:var(--rs);
   font:12.5px/1.55 var(--mono);color:var(--ink-2);overflow:auto;max-height:360px;white-space:pre-wrap;word-break:break-word}
-.ev.hide{display:none}
-.summary{display:flex;gap:14px;align-items:center;flex-wrap:wrap;color:var(--ink-3);font-size:12px;
-  margin:24px 0 0;padding-top:14px;border-top:1px solid var(--line);max-width:54rem}
-.summary b{color:var(--ink-2);font-weight:600;font-family:var(--mono)}
-.summary code{background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--ink-2)}
+
+/*
+ * 对话：同一个 session 的每一问摞在一起，跟 Claude 应用一个读法 —— 问题是右边的气泡，
+ * 过程（思考 + 工具）收成一行可展开的摘要，正文是衬线大字。过程展开后还是上面那条时间轴
+ */
+.chat{max-width:50rem;margin:0 auto}
+.turn{margin:0 0 38px}
+.umsg{display:flex;flex-direction:column;align-items:flex-end;margin-bottom:14px}
+.uhead{display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:flex-end;color:var(--ink-3);font-size:12px;margin-bottom:5px}
+.uhead b{color:var(--ink-2);font-weight:600}
+.ububble{background:var(--sunk);border:1px solid var(--line);border-radius:16px 16px 4px 16px;padding:9px 14px;max-width:85%;min-width:0}
+.atext{margin:12px 0}
+.atext .md{font-family:var(--serif);font-size:15px;line-height:1.75}
+.atext .md code{font-size:.85em}
+.atext .md :is(h1,h2,h3,h4){font-weight:500}
+.steps{margin:8px 0}
+.steps>summary{color:var(--ink-3);font-size:12.5px;cursor:pointer;width:fit-content;max-width:100%;padding:3px 9px;margin-left:-9px;
+  border-radius:var(--rs);list-style:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.steps>summary::-webkit-details-marker{display:none}
+.steps>summary::before{content:"▸ "}
+.steps[open]>summary::before{content:"▾ "}
+.steps>summary:hover{background:var(--sunk);color:var(--ink)}
+.steps>.trace{margin:10px 0 4px}
+.afoot{display:flex;gap:12px;flex-wrap:wrap;align-items:center;color:var(--ink-3);font-size:12px;margin-top:8px}
+.afoot b{color:var(--ink-2);font-weight:600;font-family:var(--mono)}
+.aerr{color:var(--bad);font-size:12.5px;margin-top:6px}
+.composer{flex:none;border-top:1px solid var(--line);background:var(--surface);padding:12px 24px 14px}
+.composer textarea{display:block;max-width:50rem;margin:0 auto;font:14px/1.55 var(--sans);resize:none;
+  field-sizing:content;min-height:2.8em;max-height:30vh;border-radius:var(--r);padding:9px 12px}
+.crow{display:flex;align-items:center;gap:10px;max-width:50rem;margin:8px auto 0}
+.crow .note{margin:0}
+.ccheck{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);cursor:pointer}
+.ccheck input{width:auto;margin:0}
+/* 右栏：左边对话，右边侧栏（这一串的概要、每一问、运行环境、用量、话题上下文、飞书卡片） */
+.dsplit{flex:1;display:flex;min-height:0}
+.dconv{flex:1;display:flex;flex-direction:column;min-width:0}
+.side{flex:none;width:21rem;overflow:auto;border-left:1px solid var(--line);background:var(--bg);padding:4px 16px 40px;font-size:12.5px}
+.sblk{padding:12px 0;border-bottom:1px solid var(--line)}
+.sblk:last-child{border-bottom:none}
+.sblk h3{margin:0 0 8px;font-size:11.5px;font-weight:600;color:var(--ink-3);letter-spacing:.04em}
+.side .kv{grid-template-columns:auto minmax(0,1fr);gap:5px 12px;font-size:12.5px}
+.side .kv dd{font-family:var(--sans);font-size:12.5px;word-break:break-word}
+.side .kv dd code{cursor:pointer;word-break:break-all}
+.sturns{list-style:none;margin:0;padding:0}
+.sturns li{padding:7px 8px;margin:0 -8px;border-radius:var(--rs);cursor:pointer}
+.sturns li:hover{background:var(--sunk)}
+.st-top{display:flex;gap:6px;align-items:center;color:var(--ink-3);font-size:11.5px;min-width:0}
+.st-top>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-q{margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-sub{color:var(--ink-3);font-size:11.5px;margin-top:2px}
+.sctx{margin:2px 0 6px}
+.sctx>summary{cursor:pointer;color:var(--ink-2)}
+.smsg{margin:8px 0;padding-left:9px;border-left:2px solid var(--rule)}
+.smsg-h{color:var(--ink-3);font-size:11.5px}
+.smsg-b{white-space:pre-wrap;word-break:break-word;margin-top:2px}
+.scard>summary{cursor:pointer;color:var(--ink-2);margin-top:8px}
+.scard .chatbg{padding:10px;margin-top:8px}
+.uctxl{margin-top:5px;font-size:12px}
+.jsearch{flex:none;padding:8px 14px;border-bottom:1px solid var(--line)}
+.jlast{color:var(--ink-2);font-size:12.5px;margin:-2px 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jans{color:var(--ink-3);font-size:12px;margin:0 0 6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
 /* 飞书卡片预览（永远浅色：真卡片就是浅的） */
 .chatbg{background:#F2F3F5;border-radius:var(--r);padding:22px;max-width:44rem}
@@ -502,6 +554,7 @@ button.link:hover{text-decoration:underline;background:none}
 
 @media(max-width:1180px){
   .stage{--d-rail:13rem;--d-mid:15rem}
+  .side{width:17rem}
 }
 @media(max-width:980px){
   .stage{grid-template-columns:13rem 1fr;grid-template-rows:auto 1fr}
@@ -522,6 +575,7 @@ button.link:hover{text-decoration:underline;background:none}
   .col.mid{grid-column:1;grid-row:2;max-height:32vh}
   .col.main{grid-column:1;grid-row:3}
   .trace{padding-left:52px}.trace::before{left:37px}.ev::before{left:-19px}.at{display:none}
+  .side{display:none}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -551,12 +605,27 @@ button.link:hover{text-decoration:underline;background:none}
 
   <section class="col mid">
     <div class="ghead" id="ghead"></div>
+    <div class="jsearch"><input id="jsearch" type="search" placeholder="搜问过的 / 答过的…"></div>
     <div class="scroll"><ul class="jobs" id="jobs"></ul></div>
   </section>
 
   <section class="col main">
     <div class="dhead" id="dhead" hidden></div>
+    <div class="dsplit">
+    <div class="dconv">
     <div class="dbody" id="dbody"></div>
+    <div class="composer" id="composer" hidden>
+      <textarea id="c-q" rows="1" placeholder="接着问…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <div class="crow">
+        <label class="ccheck" id="c-replybox"><input type="checkbox" id="c-reply"><span id="c-reply-t"></span></label>
+        <span class="note" id="c-stat"></span>
+        <span class="spacer"></span>
+        <button class="primary" id="c-go">发送</button>
+      </div>
+    </div>
+    </div>
+    <aside class="side" id="side" aria-label="这一串的信息" hidden></aside>
+    </div>
   </section>
 
   <div class="stage-grip" data-col="rail" role="separator" aria-orientation="vertical" tabindex="0"
@@ -589,7 +658,6 @@ button.link:hover{text-decoration:underline;background:none}
       <label class="fld"><span>当成哪个会话</span><select id="r-chat"></select></label>
       <label class="fld"><span>用哪个模板</span><select id="r-tpl"></select></label>
       <div class="fld"><span>项目</span><div id="r-projbox"></div></div>
-      <div id="r-resumebox" class="note" hidden></div>
       <textarea id="r-q" rows="4" placeholder="这个订单为什么改不了"></textarea>
       <div class="echo" id="r-echo"></div>
     </div>
@@ -624,7 +692,7 @@ let cfg = null;            // 服务端当前配置（含 resolved：每个会�
 let allChats = null;       // [{chatId,name,avatar,lastAt}]
 let chatsErr = '';   // /api/chats 报错（多半是飞书还没登录）：别一直显示「加载中」
 let grp = '';              // 选中的群 id；'' = 全部作业
-let sel = null, view = 'trace', filter = 'all', cardAs = '';
+let sel = null;   // 作业 id；右栏摆的是它所在的那一串（同一个 session）
 let gq = '', jq = '';      // 会话搜索 / 作业搜索
 // 左栏：只看有作业的会话。入口全开（所有群 + 所有私聊）时"已启用"等于全部，筛不出东西，有没有作业才是真区别
 let gHasJobs = false;
@@ -632,6 +700,11 @@ try { gHasJobs = localStorage.getItem('lcr.hasJobs') === '1'; } catch (e) {}
 let gKind = 'all';         // 左栏：all | group | p2p
 let jMode = 'all';         // 作业列表：all | user（@我）| bot（@机器人）。左栏的计数也跟着它
 const modeOk = (j) => jMode === 'all' || j.mode === jMode;
+/* 同一个 session 的追问聚成一串：中栏一行、右栏一段对话。还没跑起来（没 session）的自己一串 */
+const keyOf = (j) => j.session || j.id;
+const selKey = () => { const j = sel && jobs.get(sel); return j ? keyOf(j) : null; };
+const inSel = (j) => !!sel && keyOf(j) === selKey();
+const groupOf = (k) => [...jobs.values()].filter((j) => keyOf(j) === k).sort((a, b) => a.startedAt - b.startedAt);
 
 /* ---------- 小工具 ---------- */
 const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -652,9 +725,41 @@ const onAny = (id) => onIn('user', id) || onIn('bot', id);
 const resolvedFor = (mode, id) => { const m = cfg?.[mode]; return m && (m.resolved?.[id] || (covered(m, id) ? m.fallback : null)); };
 const chatName = (id) => !id ? '试跑' : (chatOf(id)?.name || id);
 const projName = (p) => String(p || '').replace(/^.*\//, '') || '—';
-function dur(ms) { return ms < 950 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms / 1000) + 's'; }
+function dur(ms) {
+  if (ms < 950) return (ms / 1000).toFixed(1) + 's';
+  const s = Math.round(ms / 1000);
+  return s < 60 ? s + 's' : Math.floor(s / 60) + 'm' + String(s % 60).padStart(2, '0') + 's';
+}
 function clock(t) { return new Date(t).toLocaleTimeString('zh-CN', { hour12: false }); }
 function fullTime(t) { return new Date(t).toLocaleString('zh-CN', { hour12: false }); }
+const tok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 100_000 ? 0 : 1) + 'k' : String(n);
+/**
+ * 一串事件里的用量（跟服务端 agent.ts 的 Usage 一个算法）：上下文取最后一次调模型的，输出按回复去重求和，
+ * 跟跑完 result 给的总数比取大的（实时流里每条回复的输出数是半截的）
+ */
+function usageOf(events) {
+  let ctx = 0, model = '', totals = 0, any = false;
+  const outs = new Map();
+  for (const e of events || []) {
+    if (e.kind !== 'usage') continue;
+    any = true;
+    if (e.total) { totals += e.out; continue; }
+    if (e.ctx) ctx = e.ctx;
+    if (e.model) model = e.model;
+    outs.set(e.msgId || '', Math.max(outs.get(e.msgId || '') || 0, e.out));
+  }
+  return any && { ctx, model, out: Math.max([...outs.values()].reduce((a, b) => a + b, 0), totals) };
+}
+/** 作业的用量：有事件就现算（跑着的会一直涨），重启后的历史作业用库里存的 */
+const jobUse = (j) => usageOf(j?.events) || (j?.ctx || j?.out ? { ctx: j.ctx || 0, out: j.out || 0, model: '' } : null);
+
+/** 列表里的时间：今天只写时分，今年写月日，再早带上年 */
+function when(t) {
+  const d = new Date(t), now = new Date(), p = (n) => String(n).padStart(2, '0');
+  const hm = p(d.getHours()) + ':' + p(d.getMinutes());
+  if (d.toDateString() === now.toDateString()) return hm;
+  return (d.getFullYear() === now.getFullYear() ? '' : d.getFullYear() + '-') + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + hm;
+}
 // 卡片没发出去 / 没改上：CC 跑完了也不算完成，群里看到的不是结论
 const st = (j) => (j.sendError && j.status !== 'running' ? '没发出去' : STATUS_CN[j.status] || j.status);
 /** 群头像。加载不出来（CDN 挂了、URL 过期）就退回首字色块 */
@@ -800,36 +905,54 @@ function renderMid() {
 
   const ul = $('jobs');
   ul.textContent = '';
-  const list = here
-    .filter(modeOk)
-    .filter((j) => !jq || (j.q + ' ' + j.who + ' ' + chatName(j.chatId)).toLowerCase().includes(jq))
-    .sort((a, b) => b.startedAt - a.startedAt);
+  const byKey = new Map();
+  for (const j of here.filter(modeOk)) { const k = keyOf(j); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(j); }
+  // 搜索对整串：哪一问、哪条结论对上了都算
+  const hit = (j) => (j.q + ' ' + j.who + ' ' + chatName(j.chatId) + ' ' + (j.answer || '')).toLowerCase().includes(jq);
+  const list = [...byKey.values()]
+    .map((g) => g.sort((a, b) => a.startedAt - b.startedAt))
+    .filter((g) => !jq || g.some(hit))
+    .sort((a, b) => b.at(-1).startedAt - a.at(-1).startedAt);
   if (!list.length) {
     const li = el('li', 'jempty');
     li.append(
-      el('div', 'je-t', here.length ? '这个入口下没有作业' : (grp ? '这个会话还没人 @你' : '还没人 @你')),
-      el('div', 'je-s', here.length ? '换个筛选看看' : '有人 @你 或 @机器人，就会出现在这里'),
+      el('div', 'je-t', jq ? '没有对得上的' : here.length ? '这个入口下没有作业' : (grp ? '这个会话还没人 @你' : '还没人 @你')),
+      el('div', 'je-s', jq ? '问题、提问的人、会话名、结论都会搜' : here.length ? '换个筛选看看' : '有人 @你 或 @机器人，就会出现在这里'),
     );
     ul.appendChild(li);
     return;
   }
-  for (const j of list) {
-    const li = el('li', j.id === sel ? 'sel' : '');
+  for (const g of list) {
+    const first = g[0], j = g.at(-1);
+    const li = el('li', g.some((x) => x.id === sel) ? 'sel' : '');
     const line = el('div', 'jline');
-    line.append(el('span', 'pill ' + j.status, st(j)), el('span', 'jtime', clock(j.startedAt)));
+    line.append(el('span', 'pill ' + j.status, st(j)));
+    if (g.length > 1) line.append(tag(`${g.length} 问`));
+    line.append(el('span', 'jtime', when(j.startedAt)));
+    li.append(line, el('div', 'jq', first.q));
+    if (g.length > 1) li.append(el('div', 'jlast', '↳ ' + oneLine(j.q)));
+    // 结论开头一两行：翻历史的时候不用点进去就知道答了什么
+    const ans = [...g].reverse().find((x) => x.answer)?.answer;
+    if (ans) li.append(el('div', 'jans', oneLine(ans.replace(/[#*`>|]/g, '')).slice(0, 160)));
     const meta = el('div', 'jmeta');
-    if (j.test) meta.append(el('span', null, '试跑'));
+    if (j.test && !g.some((x) => !x.test)) meta.append(el('span', null, j.reply ? '网页追问' : '试跑'));
     else {
-      if (j.mode === 'bot') meta.append(el('span', 'pill', '@机器人'));
-      meta.append(el('span', null, j.who));
+      const src = g.find((x) => !x.test) || j;
+      if (src.mode === 'bot') meta.append(el('span', 'pill', '@机器人'));
+      const whos = [...new Set(g.filter((x) => !x.test).map((x) => x.who))];
+      meta.append(el('span', null, whos.slice(0, 2).join('、') + (whos.length > 2 ? ` 等 ${whos.length} 人` : '')));
       // 单聊里发问的人就是会话本身，照写会得到"张三 ▸ 张三"；没项目也别挂个"▸ —"
-      const where = grp ? j.project && projName(j.project) : chatName(j.chatId);
-      if (where && where !== j.who) meta.append(el('span', null, '▸'), el('span', null, where));
+      const where = grp ? src.project && projName(src.project) : chatName(src.chatId);
+      if (where && !whos.includes(where)) meta.append(el('span', null, '▸'), el('span', null, where));
     }
+    if (j.endedAt) meta.append(el('span', null, '· ' + dur(j.endedAt - j.startedAt)));
+    // 上下文看最近一问的（这个 session 现在多大），输出是整串加起来
+    const uses = g.map(jobUse).filter(Boolean);
+    if (uses.length) meta.append(el('span', null, `· 上下文 ${tok(uses.at(-1).ctx)} · 输出 ${tok(uses.reduce((n, u) => n + u.out, 0))}`));
     // 只有"没发出去"才值得标出来 —— 每条都挂个"已发出"只是噪音
-    if (!j.posted) meta.append(threadChip(j));
-    li.append(line, el('div', 'jq', j.q), meta);
-    li.onclick = () => { sel = j.id; cardAs = ''; renderMid(); renderDetail(); };
+    if (!j.posted || j.sendError) meta.append(threadChip(j));
+    li.append(meta);
+    li.onclick = () => { sel = j.id; renderMid(); renderDetail(); };
     ul.appendChild(li);
   }
 }
@@ -840,7 +963,7 @@ const tag = (text, cls) => el('span', 'tag' + (cls ? ' ' + cls : ''), text);
 const apiText = (r) => r.agent === 'codex' ? '本机 Codex App Server' : r.apis?.length ? r.apis.join(' → ') : (cfg?.ownClaude || '跟 claude 自己的配置走');
 
 /** 头部的「详情」按钮 + 它展开的 kv 表（空值的行不出）。开合状态存在 infoOpen 里，SSE 推一次重画一次也不会自己合上 */
-const infoOpen = { g: false, d: false };
+const infoOpen = { g: false };
 function infoToggle(k, pairs) {
   pairs = pairs.filter(([, v]) => v);
   const b = el('button', 'ghost hinfo-btn', '详情');
@@ -869,12 +992,19 @@ function threadChip(j) {
 }
 
 /* ---------- 右列：详情 ---------- */
+let shownKey = null;   // 右栏现在摆的是哪一串：换了一串滚到底（最新那一问），同一串重画保住滚动位置
 function renderDetail() {
-  const j = sel && jobs.get(sel);
+  const j0 = sel && jobs.get(sel);
+  const g = j0 ? groupOf(keyOf(j0)) : [];
+  const j = g.at(-1);   // 头部、按钮都对着这一串里最新的那一问
   $('dhead').hidden = !j;
   const box = $('dbody');
+  const same = shownKey === (j ? keyOf(j) : null), y = box.scrollTop;
+  shownKey = j ? keyOf(j) : null;
   box.textContent = '';
+  renderComposer(g);
   if (!j) {
+    $('side').hidden = true;
     box.appendChild(emptyState());
     return;
   }
@@ -885,38 +1015,28 @@ function renderDetail() {
   // 机器人的私聊不在我的会话列表里，认不出是私聊 —— 那就照群写，名字退回 id
   const dm = !j.test && isP2P(j.chatId);
   const whom = isBot ? '@机器人' : '@你';
-  h.appendChild(el('h2', null, j.test ? '手动试跑' : dm ? `${j.who} 在私聊里 ${whom}` : `${j.who} 在「${chatName(j.chatId)}」${whom}`));
-  // 标题底下一行：什么时候 · 私聊还是群 · 飞书那边发没发。模板、项目、网关收进「详情」
-  const meta = el('div', 'dmeta');
-  meta.append(el('span', null, fullTime(j.startedAt)), el('span', null, '·'),
-    el('span', null, j.test ? (j.chatId ? chatName(j.chatId) : '没指定会话') : dm ? '私聊' : '群'), threadChip(j));
-  // 跑过就说明当时是开着的：没单独勾的就是默认模板
-  const jm = cfg?.[isBot ? 'bot' : 'user'];
-  const rr = j.chatId && jm && (jm.resolved?.[j.chatId] || jm.fallback);
-  const [btn, dl] = infoToggle('d', [
-    ['模板', rr?.template], ['项目', j.project], ['权限', rr && permLabel(rr)], ['API', rr && apiText(rr)],
-  ]);
-  h.appendChild(meta);
-  if (dl.childNodes.length) { meta.appendChild(btn); h.appendChild(dl); }
-
+  const src = g.find((x) => !x.test);
+  h.appendChild(el('h2', null, !src ? (j.reply ? '网页追问' : '手动试跑') : dm ? `${src.who} 在私聊里 ${whom}` : `${src.who} 在「${chatName(src.chatId)}」${whom}`));
+  // 标题底下一行：什么时候 · 私聊还是群 · 几问 · 飞书那边发没发，右边是按钮。别的都在侧栏
   const tb = el('div', 'toolbar');
-  const tabs = el('div', 'tabs');
-  for (const [k, label] of [['trace', '事件流'], ['card', '卡片']]) {
-    const b = el('button', null, label);
-    b.setAttribute('aria-selected', String(view === k));
-    b.onclick = () => { view = k; renderDetail(); };
-    tabs.appendChild(b);
-  }
-  tb.appendChild(tabs);
-  tb.appendChild(el('span', 'spacer'));
-  if (view === 'trace' && j.events.length) tb.appendChild(filterSeg());
-  if (j.status === 'running') {
+  const meta = el('div', 'dmeta');
+  meta.append(el('span', null, fullTime(g[0].startedAt)), el('span', null, '·'),
+    el('span', null, j.test ? (j.chatId ? chatName(j.chatId) : '没指定会话') : dm ? '私聊' : '群'));
+  if (g.length > 1) meta.append(el('span', null, '·'), el('span', null, `${g.length} 问`));
+  meta.append(threadChip(j));
+  tb.append(meta, el('span', 'spacer'));
+  const session = g.find((x) => x.session)?.session;
+  const t = session && !session.startsWith('codex:') ? tx.get(session) : null;
+  if (t === undefined) loadTx(session);
+  const turns = chatTurns(g, t && t !== 'loading' ? t.turns : []);
+  const live = g.find((x) => x.status === 'running');
+  if (live) {
     const stop = el('button', 'danger', '终止');
     stop.title = '杀掉这次 CC，群里的卡片收成「已手动停止」';
     stop.onclick = async () => {
       if (!(await ask('终止这次排查？', '终止'))) return;
       stop.disabled = true;
-      const d = await post('/api/stop', { id: j.id });
+      const d = await post('/api/stop', { id: live.id });
       if (d.error) { alert(d.error); stop.disabled = false; }
     };
     tb.appendChild(stop);
@@ -937,30 +1057,29 @@ function renderDetail() {
   else {
     const where = isP2P(j.chatId) ? '原私聊' : '原话题';
     const as = j.mode === 'bot' ? '以机器人身份' : '以你的身份';
-    again.title = `${as}在${where}里重新回一次（不再判定）`;
+    again.title = `最新这一问${as}在${where}里重新回一次（不再判定）`;
     again.onclick = async () => {
       if (!(await ask(`${as}在${where}里重新回一次？`, '再跑一次'))) return;
       again.disabled = true;
       const d = await post('/api/rerun', { id: j.id, mode: j.mode });
       if (d.error) { alert(d.error); again.disabled = false; }
     };
-    const t = el('button', 'ghost', '试跑');
-    t.title = '改一改问题 / 项目再跑，卡片只发给你自己';
-    t.onclick = () => openRun(j);
-    tb.appendChild(t);
+    const tr = el('button', 'ghost', '试跑');
+    tr.title = '改一改问题 / 项目再跑，卡片只发给你自己';
+    tr.onclick = () => openRun(j);
+    tb.appendChild(tr);
   }
   tb.appendChild(again);
+  const side = el('button', 'ghost', '侧栏');
+  side.setAttribute('aria-pressed', String(sideOpen));
+  side.title = '这一串的概要、每一问、运行环境、用量、话题上下文、飞书卡片';
+  side.onclick = () => { sideOpen = !sideOpen; try { localStorage.setItem('lcr.side', sideOpen ? '1' : '0'); } catch (e) {} renderDetail(); };
+  tb.appendChild(side);
   h.appendChild(tb);
 
-  if (view === 'card') return void renderCard(box, j);
-
-  if (!j.events.length) {
-    box.appendChild(el('div', 'note', j.status === 'skipped' ? (j.reason ? `判定 ${j.reason} —— 群里什么都没发。` : '判断这条不用回 —— 什么都没发出去。') : '这条是重启前的历史作业，只留了结论，逐条事件在内存里已经没了。'));
-    if (j.answer) box.appendChild(proseCard('结论', j.answer));
-    if (j.error) box.appendChild(proseCard('出错', j.error));
-    return;
-  }
-  box.appendChild(renderFlow(j));
+  box.appendChild(renderChat(turns, t));
+  renderSide(g, turns, session, t, same);
+  box.scrollTop = same ? y : box.scrollHeight;
 }
 
 function emptyState() {
@@ -982,44 +1101,144 @@ function emptyState() {
   return d;
 }
 
-function proseCard(title, text) {
-  const c = el('div', 'ev text');
-  c.appendChild(el('div', 'chip', title));
-  c.appendChild(mdNode(text));
-  return c;
+/*
+ * 本机 claude 的 session 记录（/api/transcript）。逐条事件只在内存里，重启就没了；试跑不落库 —— 这两种的过程都从这儿找回来。
+ * 跑完的那一问也用它（内存里最多留 400 条事件，长排查会被截掉开头）。跑着的那一问用内存里的实时事件
+ */
+const tx = new Map();   // session -> { cwd, turns } | 'loading'
+async function loadTx(session) {
+  tx.set(session, 'loading');
+  let d = { turns: [] };
+  try { d = await fetch('/api/transcript?session=' + encodeURIComponent(session)).then((r) => r.json()); } catch (e) {}
+  tx.set(session, Array.isArray(d?.turns) ? d : { turns: [] });
+  // ponytail: 只留最近看过的 20 串，一份记录可能好几 MB
+  while (tx.size > 20) tx.delete(tx.keys().next().value);
+  if (selKey() === session) renderDetail();
 }
 
-function filterSeg() {
-  const seg = el('div', 'seg');
-  for (const [k, label] of [['all', '全部'], ['tool', '工具'], ['thinking', '思考'], ['text', '正文']]) {
-    const b = el('button', null, label);
-    b.setAttribute('aria-pressed', String(filter === k));
-    b.onclick = () => { filter = k; renderDetail(); };
-    seg.appendChild(b);
-  }
-  return seg;
+/** 发给模型的原话 → 人问的那句：去掉前面的话题上下文、后面的截图路径（见 pipeline 的 topicContext / withImages） */
+const ASK_MARK = '这次 @你 的消息：';
+function askOf(prompt) {
+  const i = prompt.lastIndexOf(ASK_MARK);
+  return (i >= 0 ? prompt.slice(i + ASK_MARK.length) : prompt).replace(/\n\n（消息里的截图已下载到本地：[\s\S]*$/, '').trim();
 }
 
-const FILTER_KIND = { tool: ['tool', 'result'], thinking: ['thinking'], text: ['text', 'done'] };
-
-function renderFlow(j) {
-  // 修饰类要带命名空间：单独一个 `live` 会撞上顶栏那个 `.live{display:flex}`，整条时间轴会横过来
-  const flow = el('div', 'trace' + (j.status === 'running' ? ' running' : ''));
-  flow._open = new Map();
-  for (const ev of j.events) {
-    const n = evNode(ev, j.startedAt, flow._open);
-    if (n) flow.appendChild(n);   // 并进工具调用的返回没有自己的行
+/**
+ * 一串作业 + session 记录 → 按时间排的一问一答。记录里的每一问按原话认作业（作业的 q 就是那条飞书消息的正文）；
+ * 认不出的（试跑、网页追问 —— 重启后作业没了）照样摆出来；判了不回、没跑过的作业没有记录，也摆出来
+ */
+function chatTurns(g, turns) {
+  const left = [...g];
+  const out = [];
+  for (const tt of turns) {
+    const i = left.findIndex((j) => j.q.trim() && tt.prompt.includes(j.q.trim().slice(0, 200)));
+    const job = i >= 0 ? left.splice(i, 1)[0] : null;
+    const mem = job && job.events.length && (job.status === 'running' || !tt.events.length);
+    out.push({ ...tt, job, events: mem ? job.events : tt.events });
   }
-  applyFilter(flow);
-  const wrap = el('div');
-  wrap.appendChild(flow);
-  wrap.appendChild(summaryOf(j, flow));
+  for (const job of left) out.push({ job, t: job.startedAt, events: job.events });
+  return out.sort((a, b) => a.t - b.t);
+}
+
+function renderChat(turns, t) {
+  const wrap = el('div', 'chat');
+  turns.forEach((turn, i) => wrap.appendChild(turnNode(turn, i)));
+  if (t === 'loading') wrap.appendChild(el('div', 'note', '在本机的 session 记录里找过程…'));
   return wrap;
 }
 
-function applyFilter(flow) {
-  const keep = FILTER_KIND[filter];
-  for (const n of flow.children) n.classList.toggle('hide', !!keep && !keep.includes(n.dataset.kind));
+function turnNode({ job, prompt, t, events }, i) {
+  const n = el('div', 'turn');
+  n.id = 'turn-' + i;
+  const u = el('div', 'umsg');
+  const head = el('div', 'uhead');
+  head.append(el('b', null, !job ? '网页上问的' : job.test ? (job.reply ? '网页追问' : '试跑') : job.who), el('span', null, fullTime(job?.startedAt || t)));
+  if (job?.mode === 'bot' && !job.test) head.append(el('span', 'pill', '@机器人'));
+  if (job && (!job.posted || job.sendError || job.reply)) head.append(threadChip(job));
+  const q = job ? job.q : askOf(prompt);
+  const bubble = el('div', 'ububble');
+  bubble.appendChild(mdNode(q));
+  u.append(head, bubble);
+  // 带了话题上下文的：全文在侧栏，这里给个入口
+  const ctx = ctxParts(prompt);
+  if (ctx) {
+    const a = el('button', 'link uctxl', `带了 ${ctx.filter((x) => x.who).length} 条话题消息 ›`);
+    a.onclick = () => showCtx(i);
+    u.appendChild(a);
+  }
+  n.appendChild(u);
+
+  const a = el('div', 'amsg');
+  a._t0 = job?.startedAt || t; a._open = new Map(); a._live = job?.status === 'running';
+  a._job = job; a._evs = []; a._foot = el('div', 'afoot');
+  if (job) a.dataset.job = job.id;
+  for (const ev of events || []) appendEv(a, ev);
+  if (!a.querySelector('.atext')) {
+    if (job?.answer) a.appendChild(answerNode(job.answer));
+    else if (job?.status === 'skipped') a.appendChild(el('div', 'note', job.reason ? `判定 ${job.reason} —— 群里什么都没发。` : '判断这条不用回 —— 什么都没发出去。'));
+    else if (job?.reason) a.appendChild(el('div', 'note', job.reason));
+    else if (job && job.status !== 'running' && !events?.length) a.appendChild(el('div', 'note', '本机找不到这次的 session 记录（Codex，或者换过机器），过程没法找回来。'));
+  }
+  n.appendChild(a);
+  if (job?.error) n.appendChild(el('div', 'aerr', job.error));
+  n.appendChild(a._foot);
+  paintFoot(a);
+  return n;
+}
+
+/** 一问底下那行：状态、耗时、工具几次、上下文多大、输出多少。跑着的时候每来一条用量 / 工具就刷一次 */
+function paintFoot(a) {
+  const f = a._foot, job = a._job;
+  const u = usageOf(a._evs) || (job && !a._evs.length ? jobUse(job) : null);
+  const tools = a._evs.filter((e) => e.kind === 'tool').length;
+  f.textContent = '';
+  if (job) f.append(el('span', 'pill ' + job.status, st(job)));
+  if (job?.endedAt) f.append(el('span', null, '耗时 '), el('b', null, dur(job.endedAt - job.startedAt)));
+  if (tools) f.append(el('span', null, '工具 '), el('b', null, String(tools)));
+  if (u?.ctx) f.append(el('span', null, '上下文 '), el('b', null, tok(u.ctx)));
+  if (u?.out) f.append(el('span', null, '输出 '), el('b', null, tok(u.out)));
+  if (u) f.append(el('span', null, 'tokens'));
+  f.hidden = !f.childNodes.length;
+}
+
+const answerNode = (text) => { const d = el('div', 'atext'); d.appendChild(mdNode(text)); return d; };
+
+/**
+ * 往一问的回答里追加一个事件（整段重画和实时推送共用）。正文单独成段；挨着的思考 / 工具并成一个折叠的「过程」，
+ * 摘要写用了哪些工具、几次、多久。跑着的时候过程是展开的
+ */
+function appendEv(a, ev) {
+  a._evs.push(ev);
+  if (ev.kind === 'usage' || ev.kind === 'tool') { if (a.isConnected || a.parentNode) paintFoot(a); }
+  if (ev.kind === 'done' || ev.kind === 'usage') return;
+  if (ev.kind === 'text') {
+    const n = answerNode(ev.text);
+    // Codex 的正文按 itemId 一段段刷新：同一段替换，不追加
+    const old = ev.itemId && a.querySelector('[data-item-id="' + CSS.escape(ev.itemId) + '"]');
+    if (ev.itemId) n.dataset.itemId = ev.itemId;
+    if (old) old.replaceWith(n); else a.appendChild(n);
+    return;
+  }
+  let g = a.lastElementChild;
+  if (!g?.classList.contains('steps')) {
+    g = el('details', 'steps');
+    g.open = !!a._live;
+    g.append(el('summary'), el('div', 'trace'));
+    a.appendChild(g);
+  }
+  const n = evNode(ev, a._t0, a._open);
+  if (n) g.lastElementChild.appendChild(n);
+  if (ev.t) { g._from ??= ev.t; g._to = ev.t; }
+  const count = new Map();
+  let think = 0;
+  for (const c of g.lastElementChild.children) {
+    if (c.dataset.kind === 'thinking') think++;
+    // MCP 工具名很长（mcp__plugin_xxx_DOT__sql_execute），摘要里只留最后一截
+    if (c.dataset.kind === 'tool') { const k = c.querySelector('.chip').textContent.replace(/^⚙ /, '').replace(/^mcp__.*__/, ''); count.set(k, (count.get(k) || 0) + 1); }
+  }
+  const tools = [...count].sort((x, y) => y[1] - x[1]).map(([k, v]) => v > 1 ? `${k} ×${v}` : k);
+  g.firstElementChild.textContent = ([...tools, think && `思考 ${think} 次`].filter(Boolean).join(' · ') || '开始')
+    + (g._to > g._from ? ` · ${dur(g._to - g._from)}` : '');
 }
 
 function evNode(ev, t0, open) {
@@ -1090,32 +1309,6 @@ function resultBody(ev, orphan) {
   return box;
 }
 
-function summaryOf(j, flow) {
-  const s = el('div', 'summary');
-  const tools = j.events.filter((e) => e.kind === 'tool').length;
-  const end = j.endedAt || Date.now();
-  s.append(
-    el('span', null, '状态 '), el('b', null, st(j)),
-    el('span', null, '耗时 '), el('b', null, dur(end - j.startedAt)),
-    el('span', null, '工具 '), el('b', null, String(tools)),
-  );
-  if (j.reason) { const r = el('span', null, '判定 ' + j.reason); r.title = j.reason; s.append(r); }
-  // 重启后的历史作业没有事件了，session 走库里落的那份
-  const session = j.events.find((e) => e.kind === 'init')?.sessionId || j.session;
-  if (session) {
-    const id = session.replace(/^codex:/, '');
-    const c = el('code', null, id);
-    c.title = '复制会话 ID，终端可用 ' + (session.startsWith('codex:') ? 'codex resume' : 'claude --resume') + ' 接着问';
-    c.style.cursor = 'pointer';
-    c.onclick = () => copy(id, c);
-    s.append(el('span', null, 'session '), c);
-    const b = el('button', 'ghost', '接着问');
-    b.onclick = () => openRun(j, session);
-    s.append(b);
-  }
-  return s;
-}
-
 function copy(text, node) {
   navigator.clipboard?.writeText(text).then(() => {
     const old = node.textContent;
@@ -1124,50 +1317,161 @@ function copy(text, node) {
   }).catch(() => {});
 }
 
-/* ---------- 卡片预览 ---------- */
-async function renderCard(box, j) {
-  const bar = el('div', 'toolbar'); bar.style.margin = '0 0 14px';
-  const seg = el('div', 'seg');
-  for (const [k, label] of [['', '当前状态'], ['running', '进行中'], ['done', '已完成']]) {
-    const b = el('button', null, label);
-    b.setAttribute('aria-pressed', String(cardAs === k));
-    b.onclick = () => { cardAs = k; renderDetail(); };
-    seg.appendChild(b);
-  }
-  bar.appendChild(seg);
-  box.appendChild(bar);
+/* ---------- 侧栏 ---------- */
+let sideOpen = true;
+try { sideOpen = localStorage.getItem('lcr.side') !== '0'; } catch (e) {}
+/** 侧栏里折叠块的开合：SSE 推一次就整个重画，不记的话点开的会自己合上 */
+const sideFold = new Map();
+const fold = (d, key, dflt) => { d.open = sideFold.has(key) ? sideFold.get(key) : dflt; d.ontoggle = () => sideFold.set(key, d.open); };
+/**
+ * 发给模型的原话里，人问的那句之前的话题上下文（见 pipeline 的 topicContext），切成一条条消息。没带就是 null。
+ * 每条是「[时间] 谁：内容」；开头一行是说明，中间可能有「……（中间省略 N 条）」、最后可能有截图路径
+ */
+function ctxParts(prompt) {
+  const i = (prompt || '').lastIndexOf(ASK_MARK);
+  if (i < 0) return null;
+  const c = prompt.slice(0, i).replace(/\n*---\s*$/, '').trim();
+  return c.split(/\n\n(?=\[[^\]\n]*\] |……（中间省略|（里面的截图)/).map((part) => {
+    const m = /^\[([^\]]*)\] ([^：\n]+)：([\s\S]*)$/.exec(part);
+    return m ? { at: m[1], who: m[2], text: m[3].trim() } : { text: part.trim() };
+  });
+}
 
+function showCtx(i) {
+  if (!sideOpen) { sideOpen = true; renderDetail(); }
+  sideFold.set('ctx-' + i, true);
+  const d = document.getElementById('ctx-' + i);
+  if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+}
+
+function renderSide(g, turns, session, t, same) {
+  const s = $('side');
+  const y = s.scrollTop;
+  s.hidden = !sideOpen;
+  s.textContent = '';
+  if (!sideOpen) return;
+  const j = g.at(-1), src = g.find((x) => !x.test);
+  const sec = (title) => { const d = el('section', 'sblk'); d.appendChild(el('h3', null, title)); s.appendChild(d); return d; };
+  const kv = (box, pairs) => {
+    const dl = el('dl', 'kv');
+    for (const [k, v] of pairs) if (v) { const dd = el('dd'); dd.append(v); dl.append(el('dt', null, k), dd); }
+    box.appendChild(dl);
+  };
+  const asker = (x) => x.test ? (x.reply ? '网页追问' : '试跑') : x.who;
+
+  const ended = g.filter((x) => x.endedAt);
+  kv(sec('概要'), [
+    ['会话', src ? (isP2P(src.chatId) ? '私聊 · ' : '') + chatName(src.chatId) : j.chatId ? chatName(j.chatId) : '试跑（没指定会话）'],
+    ['入口', src ? (src.mode === 'bot' ? '@机器人（机器人回）' : '@我（以你的身份回）') : '网页'],
+    ['提问', [...new Set(g.map(asker))].join('、')],
+    ['开始', fullTime(g[0].startedAt)],
+    ['最近', g.length > 1 && fullTime(j.startedAt)],
+    ['总耗时', ended.length && dur(ended.reduce((n, x) => n + x.endedAt - x.startedAt, 0))],
+  ]);
+
+  const qs = sec(`每一问 · ${turns.length}`);
+  const ol = el('ol', 'sturns');
+  turns.forEach((tu, i) => {
+    const x = tu.job;
+    const li = el('li');
+    const top = el('div', 'st-top');
+    top.append(el('span', 'pill ' + (x?.status || 'done'), x ? st(x) : '记录'), el('span', null, when(x?.startedAt || tu.t)), el('span', null, x ? asker(x) : '网页上问的'));
+    li.append(top, el('div', 'st-q', oneLine(x ? x.q : askOf(tu.prompt))));
+    const u = usageOf(tu.events) || jobUse(x);
+    const bits = [x?.endedAt && dur(x.endedAt - x.startedAt), u && `上下文 ${tok(u.ctx)} · 输出 ${tok(u.out)}`, x?.reason].filter(Boolean);
+    if (bits.length) li.appendChild(el('div', 'st-sub', bits.join(' · ')));
+    li.title = '跳到这一问';
+    li.onclick = () => document.getElementById('turn-' + i)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    ol.appendChild(li);
+  });
+  qs.appendChild(ol);
+
+  // 跑过就说明当时是开着的：没单独勾的就是默认模板。模板、权限、API 是现在的配置，不一定是当时的
+  const jm = cfg?.[j.mode === 'bot' ? 'bot' : 'user'];
+  const rr = jm && (jm.resolved?.[j.chatId] || jm.fallback);
+  const init = g.flatMap((x) => x.events).filter((e) => e.kind === 'init').at(-1);
+  const uses = turns.map((tu) => usageOf(tu.events) || jobUse(tu.job)).filter(Boolean);
+  const model = [...uses].reverse().find((u) => u.model)?.model || init?.model;
+  let sid = null;
+  if (session) {
+    const id = session.replace(/^codex:/, '');
+    sid = el('code', null, id);
+    sid.title = '点一下复制，终端可用 ' + (session.startsWith('codex:') ? 'codex resume' : 'claude --resume') + ' 接着问';
+    sid.onclick = () => copy(id, sid);
+  }
+  const bad = (init?.mcp || []).filter((m) => m.status !== 'connected' && m.status !== 'pending');
+  kv(sec('运行环境'), [
+    ['项目', (t && t.cwd) || j.project || rr?.project],
+    ['执行器', session?.startsWith('codex:') ? 'Codex' : session ? 'Claude Code' : rr && agentName(rr)],
+    ['模型', model || rr?.model],
+    ['模板', rr?.template],
+    ['权限', rr && permLabel(rr)],
+    ['API', rr && apiText(rr)],
+    ['session', sid],
+    ['MCP', init?.mcp && (`${init.mcp.length - bad.length}/${init.mcp.length} 已连` + (bad.length ? '，没连上：' + bad.map((m) => m.name).join('、') : ''))],
+  ]);
+
+  // 上下文 = 最后一次调模型时喂进去的（输入 + 缓存），快满了就该新开一串了。Codex 暂时没有
+  if (uses.length) kv(sec('用量'), [
+    ['上下文', `${tok(uses.at(-1).ctx)} tokens（最近一次调模型）`],
+    ['输出', `${tok(uses.reduce((n, u) => n + u.out, 0))} tokens（${uses.length} 问合计）`],
+    ['工具', String(turns.reduce((n, x) => n + (x.events || []).filter((e) => e.kind === 'tool').length, 0)) + ' 次'],
+  ]);
+
+  const ctxs = turns.map((tu, i) => [i, ctxParts(tu.prompt)]).filter(([, c]) => c);
+  if (ctxs.length) {
+    const box = sec('话题上下文');
+    box.appendChild(el('div', 'note', '每一问之前补给模型的群消息：第一问是话题里之前的全部，后面的是上次回复之后的新消息'));
+    for (const [i, parts] of ctxs) {
+      const d = el('details', 'sctx');
+      d.id = 'ctx-' + i;
+      fold(d, 'ctx-' + i, i === ctxs.at(-1)[0]);
+      d.appendChild(el('summary', null, `第 ${i + 1} 问之前 · ${parts.filter((x) => x.who).length} 条`));
+      for (const p of parts) {
+        if (!p.who) { d.appendChild(el('div', 'note', p.text)); continue; }
+        const m = el('div', 'smsg');
+        m.append(el('div', 'smsg-h', p.who + '　' + p.at), el('div', 'smsg-b', p.text));
+        d.appendChild(m);
+      }
+      box.appendChild(d);
+    }
+  }
+
+  // 每一问都有自己的卡片，这里看最新那张
+  const cs = sec('飞书卡片');
+  const row = el('div', 'row2');
+  row.append(threadChip(j));
+  cs.appendChild(row);
+  if (j.posted || j.status === 'running') {
+    const d = el('details', 'scard');
+    d.appendChild(el('summary', null, '预览最新这张'));
+    const load = () => { if (d.open && !d._done) { d._done = true; cardPreview(d, j); } };
+    fold(d, 'card:' + j.id, false);
+    d.addEventListener('toggle', load);
+    load();
+    cs.appendChild(d);
+  }
+  if (same) s.scrollTop = y;
+}
+
+/** 飞书卡片预览：跟群里真实发的走同一个 buildCard（服务端 /api/card），预览不会漂移 */
+async function cardPreview(box, j) {
   let data;
   try {
-    const r = await fetch('/api/card/' + encodeURIComponent(j.id) + (cardAs ? '?as=' + cardAs : ''));
+    const r = await fetch('/api/card/' + encodeURIComponent(j.id));
     data = await r.json();
     if (!r.ok) throw new Error(data.error || '拉不到卡片');
   } catch (e) {
     box.appendChild(el('div', 'warn', '拉不到卡片：' + e.message));
     return;
   }
-  if (view !== 'card' || sel !== j.id) return;   // 期间切走了
-
-  // 没发出去又是判了不回的，压根没有卡片 —— 那三个态切换也没意义
-  if (!data.posted && data.status === 'skipped') {
-    bar.remove();
-    box.appendChild(el('div', 'note', '这条判了不用回，什么都没发出去 —— 没有卡片可看。'));
-    return;
-  }
-  if (!data.posted) {
-    box.appendChild(el('div', 'note', '还没发出去：判明这条确实要回才会发。下面是它现在攒着的样子。'));
-  }
-
+  if (!data.posted) box.appendChild(el('div', 'note', '还没发出去：判明这条确实要回才会发。下面是它现在攒着的样子。'));
   const stage = el('div', 'chatbg');
   stage.appendChild(feishuCard(data.card));
   box.appendChild(stage);
-
-  box.appendChild(el('p', 'note', data.posted
-    ? '这就是发出去的那张卡片（近似预览，真机字体和间距会有出入）。'
-    : '上面这张还在本地攒着，暂时看不到。'));
-
+  box.appendChild(el('p', 'note', '近似预览，真机字体和间距会有出入。'));
   const raw = el('details', 'fraw');
-  raw.appendChild(el('summary', null, '卡片 JSON（更新接口发的就是它）'));
+  raw.appendChild(el('summary', null, '卡片 JSON'));
   const pre = el('pre'); pre.textContent = JSON.stringify(data.card, null, 2);
   raw.appendChild(pre);
   box.appendChild(raw);
@@ -1276,8 +1580,10 @@ es.onmessage = (e) => {
     Object.assign(j, m.job);
     jobs.set(j.id, j);
     if (!sel && (!grp || j.chatId === grp) && modeOk(j)) sel = j.id;
+    // 跑完了：session 记录里这一问才完整，下次画的时候重新取（内存里的事件可能被截过）
+    if (j.status !== 'running' && j.session && tx.get(j.session) !== 'loading') tx.delete(j.session);
     renderStatus(); renderGroups(); renderMid();
-    if (j.id === sel) renderDetail();
+    if (inSel(j)) renderDetail();
   } else if (m.type === 'setup') {
     // 向导的检查项（装工具、测网关、扫码……）结束了：设置里的红点和每页顶上那条跟着刷新
     if (m.done && draft) loadSetup();
@@ -1291,15 +1597,12 @@ es.onmessage = (e) => {
     const itemId = m.ev.kind === 'text' && m.ev.itemId;
     const previous = itemId ? j.events.findIndex((e) => e.kind === 'text' && e.itemId === itemId) : -1;
     if (previous < 0) j.events.push(m.ev); else j.events[previous] = m.ev;
-    if (j.id !== sel || view !== 'trace') return;
-    const flow = document.querySelector('#dbody .trace');
-    if (!flow) return renderDetail();
-    const n = evNode(m.ev, j.startedAt, flow._open);
-    const old = itemId && flow.querySelector('[data-item-id="' + CSS.escape(itemId) + '"]');
-    if (old && n) old.replaceWith(n); else if (n) flow.appendChild(n);
-    applyFilter(flow);
+    if (!inSel(j)) return;
+    const a = document.querySelector('#dbody .amsg[data-job="' + CSS.escape(j.id) + '"]');
+    if (!a) return renderDetail();
     const box = $('dbody');
     const near = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
+    appendEv(a, m.ev);
     if (near) box.scrollTop = box.scrollHeight;
   }
 };
@@ -2256,7 +2559,7 @@ function paneTemplate(head, body, name) {
 
   // 实际会怎么跑：放最上面，下面改一处这里跟着变
   const be = blk('实际会怎么跑', '按页面上现在这份算（没保存的也算），跟真跑时用同一套规则。');
-  const tryBtn = btn('用这个模板试跑', () => { if (!changes().length) openRun(undefined, undefined, name); });
+  const tryBtn = btn('用这个模板试跑', () => { if (!changes().length) openRun(undefined, name); });
   tryBtn.id = 'explain-try';
   be.querySelector('.blkh').append(el('span', 'spacer'), tryBtn);
   const kv = el('dl', 'kv eff'); kv.id = 'explain'; kv.appendChild(el('dd', 'note', '计算中…'));
@@ -2658,9 +2961,55 @@ function modeRow(chatId, mode, name) {
   return row;
 }
 
+/* ---------- 对话底下的输入框：在这一串的 session 上接着问 ---------- */
+let cFor = null;   // 输入框现在对着哪一串：{ g, session, src }
+let cErr = '';     // 上一次发送的报错，换一串就清掉
+try { $('c-reply').checked = localStorage.getItem('lcr.reply') === '1'; } catch (e) {}
+function renderComposer(g) {
+  const box = $('composer');
+  const session = g.find((j) => j.session)?.session;
+  box.hidden = !session;
+  if (box.hidden) { cFor = null; return; }
+  // 卡片要回飞书的话，回在这一串最近一条飞书消息底下（群里进原话题，私聊引用它），用它当时的身份
+  const src = [...g].reverse().find((j) => !j.test && /^om_/.test(j.id));
+  const busy = g.some((j) => j.status === 'running');
+  if (cFor?.session !== session) cErr = '';
+  cFor = { g, session, src };
+  $('c-replybox').hidden = !src;
+  if (src) $('c-reply-t').textContent = `卡片回到飞书${isP2P(src.chatId) ? '原私聊' : '原话题'}（${src.mode === 'bot' ? '机器人' : '你本人'}发）`;
+  $('c-go').disabled = busy;
+  $('c-stat').textContent = busy ? '还在跑，跑完再接着问' : cErr || (src && $('c-reply').checked ? '' : '卡片只发给你自己');
+}
+$('c-reply').onchange = () => {
+  try { localStorage.setItem('lcr.reply', $('c-reply').checked ? '1' : '0'); } catch (e) {}
+  if (cFor) renderComposer(cFor.g);
+};
+async function sendFollow() {
+  const prompt = $('c-q').value.trim();
+  if (!cFor || !prompt || $('c-go').disabled) return;
+  const { g, session, src } = cFor;
+  const from = src || g.at(-1);
+  const reply = !!src && $('c-reply').checked;
+  if (reply && !isP2P(src.chatId) && !(await ask(`在「${chatName(src.chatId)}」的原话题里${src.mode === 'bot' ? '以机器人身份' : '以你的身份'}回这一问？群里的人都看得到`, '发送'))) return;
+  const t = tx.get(session);
+  $('c-go').disabled = true; $('c-stat').textContent = '启动中…';
+  // 项目用 session 记录里的 cwd：claude 的 session 跟目录走，换了目录 --resume 找不到
+  const d = await post('/api/run', {
+    mode: from.mode === 'bot' ? 'bot' : 'user', chatId: from.chatId || '', project: (t && t.cwd) || from.project || '',
+    prompt, resume: session, replyTo: reply ? src.id : undefined,
+  }).catch((e) => ({ error: e.message }));
+  if (d.error) { cErr = d.error; $('c-stat').textContent = d.error; $('c-go').disabled = false; return; }
+  $('c-q').value = ''; cErr = '';
+  sel = d.id; renderAll();
+}
+$('c-go').onclick = sendFollow;
+$('c-q').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendFollow(); }
+});
+$('jsearch').addEventListener('input', () => { jq = $('jsearch').value.trim().toLowerCase(); renderMid(); });
+
 /* ---------- 试跑 ---------- */
 let runMode = 'user';
-let runResume = '';
 let runProj = '';
 /** 单独试跑走 @我，从作业接着问沿用原入口。 */
 const runR = (id) => {
@@ -2673,12 +3022,11 @@ function setRunProj(v) {
   runProj = v;
   $('r-projbox').replaceChildren(projPicker(v, (x) => { runProj = x; echoRun(); }, '跟模板走'));
 }
-function openRun(job, resume, template) {
+function openRun(job, template) {
   runMode = job?.mode === 'bot' ? 'bot' : 'user';
   const ts = $('r-tpl');
   ts.replaceChildren(new Option('跟会话走', ''), ...Object.keys(cfg.templates).map((n) => new Option(n, n)));
   ts.value = template && cfg.templates[template] ? template : '';
-  ts.disabled = !!resume;   // 接着问得用原来那套，换不了
   const s = $('r-chat');
   s.textContent = '';
   const none = el('option'); none.value = ''; none.textContent = '（不指定，用默认配置）';
@@ -2687,7 +3035,6 @@ function openRun(job, resume, template) {
   s.value = job?.chatId || '';
   setRunProj((job && job.project) || runR(s.value)?.project || '');
   $('r-q').value = job ? job.q : '';
-  runResume = resume || '';
   $('run-stat').textContent = '';
   $('run').hidden = false; $('scrim').hidden = false;
   echoRun();
@@ -2715,15 +3062,6 @@ function echoRun() {
   if ($('r-tpl').value) e.appendChild(el('div', 'note', '这次用模板「' + $('r-tpl').value + '」（保存过的那份），不改会话绑定。'));
   else if (!chatId) e.appendChild(el('div', 'note', '没指定会话：用默认模板。上面换的项目只管这一次，不改模板。'));
   else if (!onIn(runMode, chatId)) e.appendChild(el('div', 'note', '这个会话没开自动回 —— 试跑照样能跑，但真消息不会触发。'));
-  const rb = $('r-resumebox');
-  if (runResume) {
-    rb.hidden = false;
-    rb.textContent = '';
-    rb.append(document.createTextNode('在 session '), el('code', null, runResume.replace(/^codex:/, '')), document.createTextNode(' 上接着问（项目和执行器要跟原来一致）。'));
-    const x = el('button', 'ghost', '不续了');
-    x.onclick = () => { runResume = ''; echoRun(); };
-    rb.appendChild(x);
-  } else rb.hidden = true;
 }
 $('btn-run').onclick = () => openRun();
 $('run-close').onclick = closeRun;
@@ -2733,7 +3071,7 @@ $('r-tpl').addEventListener('change', runRefresh);
 $('run-go').onclick = async () => {
   const body = {
     mode: runMode, chatId: $('r-chat').value, project: runProj, template: $('r-tpl').value || undefined,
-    prompt: $('r-q').value.trim(), resume: runResume || undefined,
+    prompt: $('r-q').value.trim(),
   };
   if (!body.prompt) { $('run-stat').textContent = '先写一句要问的话'; return; }
   $('run-go').disabled = true; $('run-stat').textContent = '启动中…';
@@ -2743,7 +3081,7 @@ $('run-go').onclick = async () => {
   if (!r.ok) { $('run-stat').textContent = d.error || '起不来'; return; }
   // 从设置里点的试跑：回主界面看进度（「试跑」按钮只在都保存了的时候能点，这里不会丢改动）
   if (draft) await closeSettings();
-  grp = body.chatId || grp; sel = d.id; view = 'trace'; closeRun(); renderAll();
+  grp = body.chatId || grp; sel = d.id; closeRun(); renderAll();
 };
 
 $('run-judge').onclick = async () => {

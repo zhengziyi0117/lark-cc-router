@@ -8,7 +8,7 @@ import {
 } from './lark.ts';
 import { healthDiff, healthOf, withPending, type Health } from './health.ts';
 import { callJudge, judgeInput, judgeTargets, DECISION_CN, type Verdict } from './judge.ts';
-import { runAgent, type AgentEvent, type RunOptions, type RunResult } from './agent.ts';
+import { runAgent, readTranscript, CONTINUE, Usage, type AgentEvent, type RunOptions, type RunResult } from './agent.ts';
 import { Pool } from './store.ts';
 import { startJob, pushEvent, finishJob, markPosted, setReason } from './bus.ts';
 import { CardStream, KitStream, buildCard, thinkingCard, type Kit } from './card.ts';
@@ -105,9 +105,6 @@ export const inOrder = (apis: Api[]): Api[] => {
 };
 const WHAT: Record<number, string> = { 401: '鉴权失败', 403: '没权限或额度用完', 429: '限流了', 529: '过载了' };
 const what = (status?: number) => (status ? WHAT[status] ?? `报 ${status}` : '连不上');
-/** 换来源时，前一个已经动过手的话，接着它的 session 说这句 */
-const CONTINUE = '（刚才调模型的 API 出了问题，换了一个接着来：把没做完的做完，结论照原来的要求给）';
-
 /**
  * 按 API 来源的顺序跑一次 CC：这个来源额度用完 / 限流 / 鉴权失败，就换下一个接着跑。
  *
@@ -558,7 +555,7 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
   const resume = inherited && sameThreadProfile(db, inherited, template) ? inherited : undefined;
 
   // **先判要不要回，再动别的**：判了不回的不该把同一个 session 上在跑的掐掉
-  startJob({ id: m.message_id, chatId: m.chat_id, who, q, project, mode });
+  startJob({ id: m.message_id, chatId: m.chat_id, who, q, project, mode, session: resume });
   // 重跑不判定：人都点了「再跑一次」了
   const verdict = rerun ? undefined : await judgeFor(cfg, m, !!inherited, deps.judge, isBot ? bot?.ids : undefined);
   if (verdict) {
@@ -683,6 +680,7 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
       return sent;
     };
   };
+  const usage = new Usage();
   const run = async (resume?: string) => {
     const { prompt, images, seen } = await prepare(m, resume);
     return runOnApis(cfg, m.chat_id, {
@@ -694,6 +692,8 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
       onEvent: (e) => {
         // 这个 session 在话题里看到这儿了，下次追问只补这之后的
         if (e.kind === 'init' && seen !== undefined) db.setMeta(seenKey(e.sessionId), seen);
+        if (e.kind === 'init') db.setJobSession(m.message_id, e.sessionId);
+        if (usage.add(e)) db.setUsage(m.message_id, usage.ctx, usage.out);
         // 新开的 / 重跑换了的 session 也挂上，同一个 session 的追问才找得到它
         if (e.kind === 'init' && !inflight.has(e.sessionId)) inflight.set(e.sessionId, entry);
         if (e.kind === 'init' && posted && isBot) remember();
@@ -852,11 +852,13 @@ export function runTest(
   cfg: Scope,
   pool: Pool,
   db: Db,
-  o: { chatId: string; project: string; prompt: string; resume?: string; mode?: ModeName },
+  o: { chatId: string; project: string; prompt: string; resume?: string; mode?: ModeName; replyTo?: string },
+  deps: Deps = o.mode === 'bot' ? BOT : REAL,
 ): string {
   const id = `test-${Date.now().toString(36)}`;
   const project = o.project || projectFor(cfg, o.chatId);
-  startJob({ id, chatId: o.chatId, who: '试跑', q: o.prompt, project, test: true, mode: o.mode });
+  const who = o.replyTo ? '网页追问' : '试跑';
+  startJob({ id, chatId: o.chatId, who, q: o.prompt, project, test: true, mode: o.mode, session: o.resume, reply: !!o.replyTo });
   log(`test ${id}: ${o.prompt.slice(0, 60)} @ ${expandProject(project)}${o.resume ? ` (resume ${o.resume.slice(0, 8)})` : ''}`);
 
   const ac = new AbortController();
@@ -864,10 +866,16 @@ export function runTest(
   tests.set(id, { ac, settled: new Promise<void>((r) => { settle = r; }) });
   /** 被谁掐的：web 上点「终止」还是停机（abort 带的原因） */
   const stop = (): Stop => (ac.signal.reason as Stop | undefined)?.note ? ac.signal.reason : STOPPED_WEB;
+  // 网页上接着问、要回飞书：以原入口的身份回在原消息底下（群里进原话题，私聊是引用），跟「重发到飞书」一个走法。否则发给我自己
   const stream = new CardStream(async () => {
+    if (o.replyTo) {
+      const m = await deps.fetchMessage(o.replyTo, o.mode ?? 'user');
+      if (!m) throw new Error('原消息取不到了：被撤回了，或者没权限');
+      return deps.replyCard(o.replyTo, thinkingCard(who, o.prompt), m.chat_type !== 'p2p');
+    }
     if (!cfg.me) throw new Error('飞书还没登录（lark-cli），认不出你是谁');
-    return sendCard(cfg.me, thinkingCard('试跑', o.prompt));
-  }, '试跑', o.prompt);
+    return sendCard(cfg.me, thinkingCard(who, o.prompt));
+  }, who, o.prompt, deps.updateCard);
   void (async () => {
     await pool.acquire();
     let text = '';
@@ -899,6 +907,8 @@ export function runTest(
         await opened;
         await stream.finish(ac.signal.aborted ? stop().note : text, !error);
         if (stream.error) throw new Error(`发出去了，但没改上：${stream.error}`);
+        // 回到飞书的那张卡片也记成这个 session 的锚点：群里在话题里、私聊引用它接着问，都接得上
+        if (o.replyTo) await rememberThread(db, stream, deps.threadIdOf);
       } catch (e: any) {
         log(`test card failed ${id}: ${e.message}`);
         sendError = e.message;
@@ -951,6 +961,32 @@ export async function closeOrphans(db: Db, mode: ModeName, deps: Deps = mode ===
       log(`补收尾失败 ${o.msgId}: ${e.message}`);
     }
   }
+}
+
+/**
+ * 用量是后来才落库的：老作业从本机 session 记录里补一次。记录里的一问按原话认作业（跟页面 chatTurns 一个认法），
+ * 认不出的、记录找不到的（Codex、换过机器）记成 0，下次启动不再翻。每个 session 之间让一下，不卡启动
+ */
+export async function backfillUsage(db: Db): Promise<void> {
+  const bySession = new Map<string, ReturnType<Db['needUsage']>>();
+  for (const r of db.needUsage()) { if (!bySession.has(r.session)) bySession.set(r.session, []); bySession.get(r.session)!.push(r); }
+  let n = 0;
+  for (const [session, rows] of bySession) {
+    await new Promise((r) => setImmediate(r));
+    const left = [...rows];
+    for (const t of readTranscript(session)?.turns ?? []) {
+      const i = left.findIndex((r) => r.q.trim() && t.prompt.includes(r.q.trim().slice(0, 200)));
+      if (i < 0) continue;
+      const [r] = left.splice(i, 1);
+      if (!r.need) continue;
+      const u = new Usage();
+      for (const e of t.events) u.add(e);
+      db.setUsage(r.msgId, u.ctx, u.out);
+      n++;
+    }
+    for (const r of left) if (r.need) db.setUsage(r.msgId, 0, 0);
+  }
+  if (n) log(`从 session 记录补了 ${n} 个老作业的用量`);
 }
 
 /* ---------- @机器人：长连接收消息，秒级 ---------- */

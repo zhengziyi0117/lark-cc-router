@@ -6,7 +6,7 @@ import { WebSocketServer } from 'ws';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runAgent, type AgentEvent } from './agent.ts';
+import { runAgent, readTranscript, CONTINUE, Usage, type AgentEvent } from './agent.ts';
 import { codexSettings, disconnectCodex, updateCodexSettings, type Steer } from './codex.ts';
 
 test('复用已有 Codex App Server，断线后重新连接', { timeout: 10_000 }, async (t) => {
@@ -188,4 +188,49 @@ process.exit(1);
   const left = { claude: alive('claude.pid'), tool: alive('tool.pid') };
   for (const f of ['claude.pid', 'tool.pid']) try { process.kill(+readFileSync(join(dir, f), 'utf8'), 'SIGKILL'); } catch {}
   assert.deepEqual(left, { claude: false, tool: false });
+});
+
+test('session 记录按「一问」切开：子任务回报、换来源续跑、子代理都不算新的一问', () => {
+  const root = mkdtempSync(join(tmpdir(), 'lcr-tx-'));
+  mkdirSync(join(root, '-proj'));
+  const id = '11111111-2222-3333-4444-555555555555';
+  const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s)).toISOString();
+  const rows = [
+    { type: 'queue-operation', content: 'x' },
+    { type: 'user', cwd: '/proj', timestamp: at(0), message: { content: '第一问' } },
+    { type: 'assistant', timestamp: at(1), message: { content: [{ type: 'thinking', thinking: '想想' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }] } },
+    { type: 'user', timestamp: at(2), message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'a.txt' }] } },
+    { type: 'user', timestamp: at(3), promptSource: 'system', message: { content: '<task-notification>…' } },
+    { type: 'user', timestamp: at(3), message: { content: CONTINUE } },
+    { type: 'assistant', timestamp: at(4), isSidechain: true, message: { content: [{ type: 'text', text: '子代理的话' }] } },
+    { type: 'assistant', timestamp: at(5), message: { id: 'm1', model: 'opus', usage: { input_tokens: 10, cache_read_input_tokens: 100, output_tokens: 7 }, content: [{ type: 'thinking', thinking: '再想想' }] } },
+    { type: 'assistant', timestamp: at(5), message: { id: 'm1', model: 'opus', usage: { input_tokens: 10, cache_read_input_tokens: 100, output_tokens: 7 }, content: [{ type: 'text', text: '结论一' }] } },
+    { type: 'assistant', timestamp: at(5), message: { id: 'x', model: '<synthetic>', usage: { input_tokens: 0, output_tokens: 0 }, content: [] } },
+    { type: 'user', timestamp: at(6), isMeta: true, message: { content: '元信息' } },
+    { type: 'user', timestamp: at(7), message: { content: [{ type: 'text', text: '第二问' }, { type: 'image' }] } },
+    { type: 'assistant', timestamp: at(8), message: { content: [{ type: 'text', text: '结论二' }] } },
+  ];
+  writeFileSync(join(root, '-proj', id + '.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n{坏行');
+  const r = readTranscript(id, root)!;
+  assert.equal(r.cwd, '/proj');
+  assert.deepEqual(r.turns.map((t) => t.prompt), ['第一问', '第二问']);
+  // 同一条回复拆成两行，用量只发一次；API 报错补的那条假消息不算
+  assert.deepEqual(r.turns[0].events.map((e) => e.kind), ['thinking', 'tool', 'result', 'thinking', 'usage', 'text']);
+  assert.equal(r.turns[0].events[5].t, Date.parse(at(5)));
+  assert.deepEqual(r.turns[0].events[4], { kind: 'usage', msgId: 'm1', model: 'opus', ctx: 110, out: 7, t: Date.parse(at(5)) });
+  assert.ok(!r.turns[1].events.some((e) => e.kind === 'usage'));
+  assert.equal(readTranscript('../etc', root), undefined);
+  assert.equal(readTranscript('codex:abc', root), undefined);
+  assert.equal(readTranscript('nope', root), undefined);
+});
+
+test('用量：上下文取最后一次，输出按回复去重求和；流里的半截数被 result 的总数盖过', () => {
+  const u = new Usage();
+  for (const e of [
+    { kind: 'usage', msgId: 'a', ctx: 100, out: 6 }, { kind: 'usage', msgId: 'a', ctx: 100, out: 98 },
+    { kind: 'text', text: 'x' }, { kind: 'usage', msgId: 'b', ctx: 300, out: 3 },
+  ] as AgentEvent[]) u.add(e);
+  assert.deepEqual([u.ctx, u.out], [300, 101]);
+  u.add({ kind: 'usage', out: 150, total: true });
+  assert.deepEqual([u.ctx, u.out], [300, 150]);
 });

@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { listChats, chatActivity, fetchMessage, replyCard, sendCard, type Chat } from './lark.ts';
 import { snapshot, subscribe, broadcast, finishJob, type Job } from './bus.ts';
 import { CardBuilder, buildCard, type CardStatus } from './card.ts';
+import { readTranscript } from './agent.ts';
 import type { Db, Handled } from './db.ts';
 import { canResume, sameThreadProfile, runTest, rerunMessage, judgeFor, stopJob, log, botInfo, inOrder, restingUntil } from './pipeline.ts';
 import { DEFAULT_JUDGE_PROMPT, DECISION_CN, judgeTargets } from './judge.ts';
@@ -75,6 +76,7 @@ async function handle(req: any, res: ServerResponse, cfg: Config, db: Dbs, pool:
   if (path === '/api/projects') return void json(res, 200, { workspaces: workspaceList(), canPick: !!pickFolder, home: homedir() });
   if (path === '/api/pick-folder' && post && pickFolder) return void json(res, 200, { path: await pickFolder() });
   if (path.startsWith('/api/card/')) return void card(url, res, db);
+  if (path === '/api/transcript') return void json(res, 200, readTranscript(url.searchParams.get('session') ?? '') ?? { turns: [] });
   if (path === '/api/config' && post) return void save(await readBody(req), res, cfg, pool);
   if (path === '/api/chat' && post) return void setChat(await readBody(req), res, cfg, pool);
   if (path === '/api/run' && post) return void run(await readBody(req), res, cfg, pool, db);
@@ -190,13 +192,14 @@ function sse(res: ServerResponse, cfg: Config, db: Dbs): void {
 }
 
 /**
- * 内存里的实时作业 + 落盘的历史。重启后历史还在，只是没有逐条事件了。
- * ponytail: 快照把每个作业的事件也带上（最多 50×400 条），本机跑无所谓；哪天觉得慢就只带最近几条，其余按需拉
+ * 内存里的实时作业 + 落盘的历史。重启后逐条事件没了，页面按 session 去 /api/transcript 找回来。
+ * ponytail: 快照把每个作业的事件也带上（最多 50×400 条），历史每个库 500 条（实测 400 条约 0.5MB），本机跑无所谓；
+ * 哪天觉得慢就只带最近几条，其余按需拉
  */
 function withHistory(db: Dbs): Job[] {
   const live = snapshot();
   const seen = new Set(live.map((j) => j.id));
-  const past = [...db.user.recent(50).map((h) => jobFromRow(h, 'user')), ...db.bot.recent(50).map((h) => jobFromRow(h, 'bot'))]
+  const past = [...db.user.recent(500).map((h) => jobFromRow(h, 'user')), ...db.bot.recent(500).map((h) => jobFromRow(h, 'bot'))]
     .filter((j) => !seen.has(j.id));
   return [...past, ...live];
 }
@@ -207,7 +210,7 @@ function jobFromRow(h: Handled, mode: ModeName): Job {
     id: h.msgId, chatId: h.chatId, who: h.who, q: h.q, project: '', mode,
     status: h.status, answer: h.answer, error: h.error,
     events: [], startedAt: h.startedAt, endedAt: h.endedAt, session: h.session, reason: h.reason,
-    posted: h.status !== 'skipped', sendError: h.sendError,
+    posted: h.status !== 'skipped', sendError: h.sendError, ctx: h.ctx, out: h.out,
   };
 }
 
@@ -229,14 +232,12 @@ function card(url: URL, res: ServerResponse, db: Dbs): void {
   const id = decodeURIComponent(url.pathname.slice('/api/card/'.length));
   const live = snapshot().find((j) => j.id === id);
   const past = live ? undefined : (['user', 'bot'] as const)
-    .map((m) => { const h = db[m].recent(200).find((x) => x.msgId === id); return h && jobFromRow(h, m); })
+    .map((m) => { const h = db[m].get(id); return h && jobFromRow(h, m); })
     .find(Boolean);
   const job = live ?? past;
   if (!job) return void json(res, 404, { error: '没有这个作业' });
 
-  // ?as=running|done|failed 可以强看某一态 —— 跑完的作业也能看它当时长什么样
-  const as = url.searchParams.get('as') as CardStatus | null;
-  const status = as && ['running', 'done', 'failed', 'skipped'].includes(as) ? as : (job.status as CardStatus);
+  const status = job.status as CardStatus;
   // 没开过话题的作业，卡片只是"攒着的样子"，群里其实什么都没有
   const posted = !!job.posted;
   json(res, 200, { card: cardForJob(job, status), status, live: !!live, posted, events: job.events.length });
@@ -390,8 +391,13 @@ function run(body: any, res: ServerResponse, cfg: Config, pool: Pool, db: Dbs): 
   if (!prompt) return void json(res, 400, { error: '先写一句要问的话' });
   if (!project) return void json(res, 400, { error: '这个会话的模板没配项目，去「模板」里填上' });
   if (!existsSync(expandProject(project))) return void json(res, 400, { error: `项目路径不存在：${project}` });
+  // 同一个 session 起两个进程一起 resume，两边会各写各的、互相看不见
+  if (resume && snapshot().some((j) => j.status === 'running' && j.session === resume)) return void json(res, 409, { error: '这个 session 还在跑，等它跑完或者先终止' });
+  // 网页上接着问、卡片回到飞书原消息底下（见 runTest）
+  const replyTo = String(body?.replyTo ?? '');
+  if (replyTo && !/^om_[\w-]+$/.test(replyTo)) return void json(res, 400, { error: '只有飞书里来的作业能回原会话' });
 
-  json(res, 200, { id: runTest(sc, pool, db[mode], { chatId, project, prompt, resume: resume || undefined, mode }) });
+  json(res, 200, { id: runTest(sc, pool, db[mode], { chatId, project, prompt, resume: resume || undefined, mode, replyTo: replyTo || undefined }) });
 }
 
 /** 真消息的「再跑一次」：回原会话、用原身份重新处理（见 rerunMessage）。试跑的没有原会话，还是走 /api/run */

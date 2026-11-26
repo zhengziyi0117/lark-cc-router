@@ -29,6 +29,11 @@ export interface Job {
   posted?: boolean;
   /** 飞书卡片没发出去 / 收尾那帧没改上的原因。有它就不算成功：web UI 上那个按钮变成「重发到飞书」 */
   sendError?: string;
+  /** 网页上接着问、卡片回到了飞书原消息底下（不是发给我自己） */
+  reply?: boolean;
+  /** 用量（token）。实时作业页面从事件里自己算；重启后的历史作业只剩库里这两个数 */
+  ctx?: number;
+  out?: number;
 }
 
 export type Msg =
@@ -63,7 +68,8 @@ export function snapshot(): Job[] {
   return [...jobs.values()];
 }
 
-export function startJob(o: Pick<Job, 'id' | 'chatId' | 'who' | 'q' | 'project' | 'test' | 'mode'>): Job {
+/** session 接着问的时候一开始就知道（页面按 session 把同一串追问聚在一起），新开的等 init 事件 */
+export function startJob(o: Pick<Job, 'id' | 'chatId' | 'who' | 'q' | 'project' | 'test' | 'mode' | 'session' | 'reply'>): Job {
   const job: Job = { ...o, status: 'running', events: [], startedAt: Date.now() };
   jobs.set(job.id, job);
   while (jobs.size > MAX_JOBS) jobs.delete(jobs.keys().next().value!);
@@ -80,6 +86,7 @@ export function pushEvent(id: string, ev: AgentEvent): void {
   else job.events[previous] = stamped;
   if (job.events.length > MAX_EVENTS) job.events.shift();
   emitter.emit('m', { type: 'ev', id, ev: stamped } satisfies Msg);
+  if (ev.kind === 'init' && job.session !== ev.sessionId) { job.session = ev.sessionId; emitJob(job); }
 }
 
 export function finishJob(id: string, patch: Partial<Pick<Job, "status" | "answer" | "error" | "sendError" | "posted">>): void {
