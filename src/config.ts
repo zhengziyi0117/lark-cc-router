@@ -58,8 +58,25 @@ export type Tier = (typeof TIERS)[number];
 export const isTier = (v: unknown): v is Tier => TIERS.includes(v as Tier);
 /** 判定直接调 API，不认别名：来源没给 haiku 那档起名就用这个 */
 export const JUDGE_MODEL = 'claude-haiku-4-5';
+/** Google Gemini Decisions API 的默认地址和模型 */
+export const DECISION_API_BASE = 'https://generativelanguage.googleapis.com';
+export const DECISION_API_MODEL = 'gemini-decision-1';
 /** 一档对应的环境变量 */
 export const tierEnv = (t: Tier) => `ANTHROPIC_DEFAULT_${t.toUpperCase()}_MODEL`;
+
+/**
+ * 可选：Google Gemini Decisions API（专做四选一分类，0 输出 token，不依赖 Anthropic 网关）。
+ * 开启后「先判定要不要回」优先走它，失败再回退到原来的 Anthropic 网关。
+ */
+export interface DecisionApi {
+  on?: boolean;
+  /** Google AI Studio API Key。不下发到 web 页面 */
+  apiKey?: string;
+  /** 可选反代 / 中转地址，不填走默认官方地址 */
+  baseUrl?: string;
+  /** 默认 gemini-decision-1 */
+  model?: string;
+}
 
 /**
  * 一个 API 来源。按 Config.apis 的顺序用：这个额度用完 / 限流 / 鉴权失败，自动换下一个接着跑（见 pipeline 的 runOnApis）。
@@ -162,6 +179,8 @@ export interface Config {
   bot: Mode;
   /** API 来源，按顺序用、出问题自动换下一个。空 = 跟 claude 自己的配置走（~/.claude/settings.json，没配就是订阅登录） */
   apis: Api[];
+  /** 可选：Google Gemini Decisions API（用于「先判定要不要回」） */
+  decisionApi?: DecisionApi;
 }
 
 /**
@@ -261,6 +280,9 @@ export function argsFor(cfg: Parameters<typeof resolveChat>[0], chatId: string, 
 
 /** 下发到页面的样子：令牌只说有没有 */
 export const publicApi = (a: Api) => ({ name: a.name, kind: a.kind, baseUrl: a.baseUrl ?? '', models: a.models ?? {}, hasToken: !!a.token });
+export const publicDecisionApi = (d?: DecisionApi) => ({
+  on: !!d?.on, baseUrl: d?.baseUrl ?? '', model: d?.model ?? '', hasKey: !!d?.apiKey,
+});
 
 /** 一个 API 来源要给 claude 的环境变量：地址 / 令牌 + 档位映射 */
 export function apiEnv(api: Api): Record<string, string> {
@@ -428,9 +450,11 @@ export function loadConfig(path = CONFIG_PATH): Config {
 }
 
 /** web UI 保存用：只改传进来的键，其它键原样留在文件里（老键顺手迁掉）。API 来源只在设置的「API」页改（setup/auth.ts） */
-export function saveConfig(patch: Partial<EditableConfig & Pick<Config, 'apis'>>, path = CONFIG_PATH): void {
+export function saveConfig(patch: Partial<EditableConfig & Pick<Config, 'apis' | 'decisionApi'>>, path = CONFIG_PATH): void {
   const raw = migrate(rawConfig(path) as Record<string, any>);
-  writeFileSync(path, JSON.stringify({ ...raw, ...patch }, null, 2) + '\n');
+  const next: Record<string, unknown> = { ...raw, ...patch };
+  if ('decisionApi' in patch && patch.decisionApi === undefined) delete next.decisionApi;
+  writeFileSync(path, JSON.stringify(next, null, 2) + '\n');
   chmodSync(path, 0o600); // 里面可能有网关 token
 }
 
@@ -527,4 +551,24 @@ export function sanitizeApis(list: unknown, cur: Api[]): { apis: Api[]; errors: 
     apis.push(a);
   }
   return { apis, errors };
+}
+
+/**
+ * Google Decisions API 配置过一遍。apiKey 页面上拿不到原值：没传 = 沿用已存的，传空串才是清掉。
+ * 什么都没设就返回 undefined，让 config.json 保持干净。
+ */
+export function sanitizeDecisionApi(raw: unknown, cur?: DecisionApi): { decisionApi?: DecisionApi; error?: string } {
+  const o = (raw ?? {}) as any;
+  const on = o.on === true;
+  const apiKey = typeof o.apiKey === 'string' ? o.apiKey.trim() : (cur?.apiKey ?? '');
+  const baseUrl = str(o.baseUrl).replace(/\/+$/, '');
+  if (baseUrl && !/^https?:\/\/\S+$/.test(baseUrl)) return { error: 'Decisions API 的地址要是 http(s)://…' };
+  const model = str(o.model);
+  if (model && !isModelName(model)) return { error: 'Decisions API 的模型名不对' };
+  const out: DecisionApi = {};
+  if (on) out.on = true;
+  if (apiKey) out.apiKey = apiKey;
+  if (baseUrl && baseUrl !== DECISION_API_BASE) out.baseUrl = baseUrl;
+  if (model && model !== DECISION_API_MODEL) out.model = model;
+  return { decisionApi: Object.keys(out).length ? out : undefined };
 }

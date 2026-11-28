@@ -2,11 +2,11 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
-import { apiEnv, expandProject, HOME_DIR, JUDGE_MODEL, loadConfig, migrate, publicApi, rawConfig, resolveChat, routingTemplates, sanitizeApis, saveConfig, type Api, type Config, type Template } from '../config.ts';
+import { apiEnv, expandProject, HOME_DIR, JUDGE_MODEL, loadConfig, migrate, publicApi, rawConfig, resolveChat, routingTemplates, sanitizeApis, sanitizeDecisionApi, saveConfig, type Api, type Config, type Template } from '../config.ts';
 import { bin, killTree, WIN } from '../bins.ts';
 import { codexConnection, codexSettings, updateCodexSettings } from '../codex.ts';
 import { broadcast } from '../bus.ts';
-import { judgeTargets, pingGateway } from '../judge.ts';
+import { decisionTarget, judgeTargets, pingDecisionApi, pingGateway } from '../judge.ts';
 import { apiHealth } from '../pipeline.ts';
 import { NEED } from '../app.ts';
 import { userAuth } from '../lark.ts';
@@ -144,6 +144,15 @@ const testOne: Handler = async (body, { cfg }) => {
   if (!apis[0]) return { ok: false, error: errors[0] ?? '填得不对' };
   // 包一层：测不通不算接口出错（ok:false 页面会当成异常抛）
   return { result: await testApi(apis[0]) };
+};
+
+/** 测 Google Decisions API 通不通（可能刚改、还没存）。apiKey 没传沿用已存的或环境变量 GEMINI_API_KEY */
+const testDecisionApi: Handler = async (body, { cfg }) => {
+  const { decisionApi, error } = sanitizeDecisionApi(body, cfg.decisionApi);
+  if (error) return { ok: false, error };
+  const apiKey = (decisionApi?.apiKey || process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) return { ok: false, error: '先填一个 Google AI Studio API Key' };
+  return { result: await pingDecisionApi({ apiKey, baseUrl: decisionApi?.baseUrl, model: decisionApi?.model }) };
 };
 
 /* ---------- 飞书 ---------- */
@@ -811,8 +820,9 @@ const ccSync: Handler = async (body) => {
 
 /* ---------- 汇总 ---------- */
 
-/** 开了「先判定」却没处可打的模板（只有订阅、settings.json 里也没令牌）：每条都会按要回处理，等于白开 */
-export function judgeless(cfg: Pick<Config, 'templates' | 'apis'>, templates: Template[]): string[] {
+/** 开了「先判定」却没处可打的模板（没开 Google Decisions API，也只有订阅、settings.json 里没令牌）：每条都会按要回处理，等于白开 */
+export function judgeless(cfg: Pick<Config, 'templates' | 'apis' | 'decisionApi'>, templates: Template[]): string[] {
+  if (decisionTarget(cfg.decisionApi)) return [];
   const names = Object.entries(cfg.templates).filter(([, t]) => templates.includes(t) && t.judge).map(([n]) => n);
   return names.filter((n) => !judgeTargets(resolveChat({ chats: {}, templates: cfg.templates, defaultTemplate: n, apis: cfg.apis }, '').apis).length);
 }
@@ -820,12 +830,12 @@ export function judgeless(cfg: Pick<Config, 'templates' | 'apis'>, templates: Te
 export async function sections(cfg: Config): Promise<Section[]> {
   const templates = routingTemplates(cfg);
   const claude = templates.some((t) => t.agent !== 'codex');
-  const model: Section = claude || templates.some((t) => t.judge) ? modelSection(cfg) : {
+  const model: Section = claude || (templates.some((t) => t.judge) && !decisionTarget(cfg.decisionApi)) ? modelSection(cfg) : {
     id: 'model', title: '模型', checks: [],
   };
   const lost = judgeless(cfg, templates);
   if (lost.length) model.checks.push({ id: 'judge', label: '判定', state: 'missing',
-    detail: `模板「${lost.join('」「')}」开了先判定，但没有网关可打（订阅不能直接调 API）：每条都会按要回处理。加一个网关，或者在模板里关掉判定`,
+    detail: `模板「${lost.join('」「')}」开了先判定，但没有可用的判定接口（订阅不能直接调 API）：每条都会按要回处理。可以在设置 → 常规里开 Google Decisions API、加一个网关，或者在模板里关掉判定`,
     optional: true });
   if (templates.some(t => t.agent === 'codex')) {
     const check: Check = { id: 'codex', label: 'Codex App Server', state: 'ok' };
@@ -843,6 +853,7 @@ export const routes: Record<string, Handler> = {
   }),
   'POST /api/setup/apis': saveApis,
   'POST /api/setup/apis/test': testOne,
+  'POST /api/setup/decision-api/test': testDecisionApi,
   'POST /api/setup/lark/app': larkApp,
   'POST /api/setup/lark/login': larkLogin,
   'POST /api/setup/plugin/install': installPlugin,

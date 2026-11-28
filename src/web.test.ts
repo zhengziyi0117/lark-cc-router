@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { allowed, apisFrom, explainTemplate } from './web.ts';
+import { allowed, apisFrom, decisionApiFrom, explainTemplate } from './web.ts';
 import { publicApi, type Config } from './config.ts';
 
 const H = 'http://127.0.0.1:8787';
@@ -57,4 +57,28 @@ test('设置里存 API 来源：改名按 from 认（令牌找回来、模板跟
   assert.deepEqual([...a.renamed], [['旧', '新']]);
   assert.equal(apisFrom({ apis: [{ name: 'x', kind: 'gateway', baseUrl: 'ftp://x' }] }, cur)!.errors.length, 1);
   assert.equal(apisFrom({}, cur), undefined);
+});
+
+test('实际生效：开启 Google Decisions API 后纯订阅也能判定；没填 Key 时标红提醒', () => {
+  const prev = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  try {
+    const base = { templates: {}, user: { on: true, chats: {}, defaultTemplate: 'x' }, bot: { on: false, chats: {}, defaultTemplate: 'x' },
+      apis: [{ name: '订阅', kind: 'subscription' }] } as unknown as Config;
+    const ok = explainTemplate({ ...base, decisionApi: { on: true, apiKey: 'AIza-x' } }, { project: tmpdir(), judge: '判' });
+    const j1 = ok.find((l) => l.k === '判定')!;
+    assert.equal(j1.bad, undefined);
+    assert.match(j1.v, /Google Decisions API（gemini-decision-1）/);
+
+    const nokey = explainTemplate({ ...base, decisionApi: { on: true } }, { project: tmpdir(), judge: '判' });
+    const j2 = nokey.find((l) => l.k === '判定')!;
+    assert.equal(j2.bad, true);
+    assert.match(j2.v, /还没填 API Key/);
+
+    assert.equal(decisionApiFrom({}, base), undefined);
+    assert.deepEqual(decisionApiFrom({ decisionApi: { on: true } }, { decisionApi: { on: true, apiKey: 'old' } }),
+      { decisionApi: { on: true, apiKey: 'old' } });
+  } finally {
+    if (prev === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = prev;
+  }
 });

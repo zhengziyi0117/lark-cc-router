@@ -10,13 +10,14 @@ import { CardBuilder, buildCard, type CardStatus } from './card.ts';
 import { readTranscript } from './agent.ts';
 import type { Db, Handled } from './db.ts';
 import { canResume, sameThreadProfile, runTest, rerunMessage, judgeFor, stopJob, log, botInfo, inOrder, restingUntil } from './pipeline.ts';
-import { DEFAULT_JUDGE_PROMPT, DECISION_CN, judgeTargets } from './judge.ts';
+import { DEFAULT_JUDGE_PROMPT, DECISION_CN, decisionTarget, judgeTargets } from './judge.ts';
 import type { Pool } from './store.ts';
 import { status as setupStatus, route as setupRoute } from './setup/index.ts';
 import { workspaceList } from './setup/workspace.ts';
 import {
-  DEFAULT_SYSTEM_PROMPT, PERMISSION_MODES, ROOT, expandProject, loadConfig, publicApi, resolveChat, routingTemplates, sanitizeConfig, scopeOf,
-  saveConfig, sanitizeApis, argsFor, claudeSettingsFor, apiEnv, isTier, tierEnv, TIERS, type Api, type Config, type EditableConfig, type Mode, type ModeName, type Scope,
+  DEFAULT_SYSTEM_PROMPT, DECISION_API_BASE, DECISION_API_MODEL, PERMISSION_MODES, ROOT, expandProject, loadConfig, publicApi, publicDecisionApi,
+  resolveChat, routingTemplates, sanitizeConfig, sanitizeDecisionApi, scopeOf, saveConfig, sanitizeApis, argsFor, claudeSettingsFor, apiEnv,
+  isTier, tierEnv, TIERS, type Api, type Config, type DecisionApi, type EditableConfig, type Mode, type ModeName, type Scope,
 } from './config.ts';
 
 /** 两个入口各一个库，见 Db */
@@ -209,7 +210,7 @@ function jobFromRow(h: Handled, mode: ModeName): Job {
   return {
     id: h.msgId, chatId: h.chatId, who: h.who, q: h.q, project: '', mode,
     status: h.status, answer: h.answer, error: h.error,
-    events: [], startedAt: h.startedAt, endedAt: h.endedAt, session: h.session, reason: h.reason,
+    events: [], startedAt: h.startedAt, endedAt: h.endedAt, session: h.session, reason: h.reason, judgeMeta: h.judgeMeta,
     posted: h.status !== 'skipped', sendError: h.sendError, ctx: h.ctx, out: h.out,
   };
 }
@@ -270,6 +271,9 @@ export function editorConfig(cfg: Config) {
     usesClaude: routingTemplates(cfg).some((t) => t.agent !== 'codex'),
     /** API 来源（令牌只说有没有）。在设置的「API」页改 */
     apis: cfg.apis.map(publicApi),
+    /** 可选：Google Gemini Decisions API（密钥只说有没有） */
+    decisionApi: publicDecisionApi(cfg.decisionApi),
+    decisionApiDefaults: { baseUrl: DECISION_API_BASE, model: DECISION_API_MODEL },
     user: modeView(cfg, 'user'),
     /** name：认出来的机器人叫什么（没开 / 还没认出来 = 空） */
     bot: { ...modeView(cfg, 'bot'), name: botInfo()?.name ?? '' },
@@ -299,7 +303,7 @@ function inUse(c: Pick<Config, 'templates' | 'user' | 'bot'>) {
 }
 
 /** 落盘 + 热更新 + 推给所有页面。返回用到的项目里不存在的路径 */
-function commit(patch: Partial<EditableConfig & Pick<Config, 'apis'>>, cfg: Config, pool: Pool): string[] {
+function commit(patch: Partial<EditableConfig & Pick<Config, 'apis' | 'decisionApi'>>, cfg: Config, pool: Pool): string[] {
   saveConfig(patch);
   // 热更新：轮询循环每轮读 cfg.pollMs（当前这一觉睡完就换），并发上限直接改 Pool
   Object.assign(cfg, loadConfig(), { me: cfg.me }); // me 不在文件里，是启动时从 lark-cli 认的
@@ -329,15 +333,23 @@ export function apisFrom(body: any, cfg: Pick<Config, 'apis'>): { apis: Api[]; e
   return { apis, errors, renamed };
 }
 
+/** 页面上传来的 Google Decisions API 配置。没传 = 不动；apiKey 没传 = 沿用已存的，传空串才是清掉 */
+export function decisionApiFrom(body: any, cfg: Pick<Config, 'decisionApi'>): { decisionApi?: DecisionApi; error?: string } | undefined {
+  if (!body || !Object.hasOwn(body, 'decisionApi')) return undefined;
+  return sanitizeDecisionApi(body.decisionApi, cfg.decisionApi);
+}
+
 /** 设置面板保存：模板 + 通用 + 白名单 + API 来源整份。前端传来的东西一律不信 */
 async function save(body: any, res: ServerResponse, cfg: Config, pool: Pool): Promise<void> {
   const a = apisFrom(body, cfg);
   if (a?.errors.length) return void json(res, 400, { error: a.errors.join('；') });
+  const d = decisionApiFrom(body, cfg);
+  if (d?.error) return void json(res, 400, { error: d.error });
   if (a) for (const t of Object.values<any>(body?.templates ?? {})) if (t && a.renamed.has(t.api)) t.api = a.renamed.get(t.api);
   const next = sanitizeConfig(body, a ? { ...cfg, apis: a.apis } : cfg);
   const err = noProjectError(next);
   if (err) return void json(res, 400, { error: err });
-  const warnings = commit(a ? { ...next, apis: a.apis } : next, cfg, pool);
+  const warnings = commit({ ...next, ...(a ? { apis: a.apis } : {}), ...(d ? { decisionApi: d.decisionApi } : {}) }, cfg, pool);
   log(`config saved: @我 ${next.user.on ? `${Object.keys(next.user.chats).length} 个会话` : '关'}, @机器人 ${next.bot.on ? '开' : '关'}, ${Object.keys(next.templates).length} 个模板`);
   json(res, 200, { ok: true, warnings });
 }
@@ -471,7 +483,7 @@ async function judge(body: any, res: ServerResponse, cfg: Config): Promise<void>
   };
   const v = await judgeFor(trialScope(cfg, body, chatId), m, false);
   if (!v) return void json(res, 200, { none: true });
-  json(res, 200, { decision: v.decision, label: DECISION_CN[v.decision], reason: v.reason });
+  json(res, 200, { decision: v.decision, label: DECISION_CN[v.decision], reason: v.reason, meta: v.meta });
 }
 
 /* ---------- 实际生效 ---------- */
@@ -479,7 +491,13 @@ async function judge(body: any, res: ServerResponse, cfg: Config): Promise<void>
 /** 页面上那份模板 + 那份 API 来源表（都可能还没保存）→ 实际会怎么跑 */
 function explain(body: any, res: ServerResponse, cfg: Config): void {
   const a = apisFrom(body, cfg);
-  json(res, 200, { lines: explainTemplate(a ? { ...cfg, apis: a.apis } : cfg, body?.template) });
+  const d = decisionApiFrom(body, cfg);
+  const merged: Config = {
+    ...cfg,
+    ...(a ? { apis: a.apis } : {}),
+    ...(d && !d.error ? { decisionApi: d.decisionApi } : {}),
+  };
+  json(res, 200, { lines: explainTemplate(merged, body?.template) });
 }
 
 export interface Line { k: string; v: string; bad?: boolean; code?: boolean }
@@ -519,9 +537,17 @@ export function explainTemplate(cfg: Config, draft: unknown): Line[] {
   }
   if (!r.judge) add('判定', '关：每条都直接交给执行器');
   else {
+    const dt = decisionTarget(cfg.decisionApi);
     const ts = judgeTargets(order);
-    if (!ts.length) add('判定', '没有网关可打（订阅不能直接调 API）：每条都会按「要回」处理。去 Claude Code 页的「API 来源」加一个网关，或者关掉判定', true);
-    else add('判定', ts.map(({ api, model }) => `${api ? `「${api.name}」` : 'claude 自己配的网关'}上的 ${model}`).join('，不行换 '));
+    const gwText = ts.map(({ api, model }) => `${api ? `「${api.name}」` : 'claude 自己配的网关'}上的 ${model}`).join('，不行换 ');
+    if (dt) add('判定', `Google Decisions API（${dt.model}）${gwText ? `，不行回退到 ${gwText}` : ''}`);
+    else if (cfg.decisionApi?.on) {
+      add('判定', gwText
+        ? `Google Decisions API 已开启但还没填 API Key，当前回退到 ${gwText}`
+        : 'Google Decisions API 已开启但还没填 API Key，且没有网关可回退：每条都会按「要回」处理', true);
+    } else if (!ts.length) {
+      add('判定', '没有网关可打（订阅不能直接调 API）：每条都会按「要回」处理。去「常规」开 Google Decisions API，或去 Claude Code 页的「API 来源」加一个网关，或者关掉判定', true);
+    } else add('判定', gwText);
   }
   return out;
 }

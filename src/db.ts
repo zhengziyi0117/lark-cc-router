@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { DecisionMeta } from './judge.ts';
 
 export interface Handled {
   msgId: string;
@@ -16,6 +17,8 @@ export interface Handled {
   session?: string;
   /** 判定的结论 + 理由（"不用回：MR 通知"）。没配判定的模板没有 */
   reason?: string;
+  /** Google Decisions API 多维判定的结构化结果（概率分布、紧急度、注入风险等） */
+  judgeMeta?: DecisionMeta;
   /** 飞书卡片没发出去 / 没改上（见 bus 的 Job.sendError） */
   sendError?: string;
   /** 用量（token）：最后一次调模型时的上下文、一共输出了多少。跑着就在写，见 agent 的 Usage */
@@ -74,7 +77,7 @@ export class Db {
     // 老库没有这几列。sqlite 没有 ADD COLUMN IF NOT EXISTS，只能先看一眼
     const cols = new Set((this.db.prepare(`PRAGMA table_info(handled)`).all() as any[]).map((c) => c.name));
     // card_msg / card_entity：发出去的卡片（消息 id；机器人的流式卡片还有卡片实体 id），死在半路时启动后靠它补收尾
-    for (const c of ['session_id', 'reason', 'card_msg', 'card_entity', 'send_error']) if (!cols.has(c)) this.db.exec(`ALTER TABLE handled ADD COLUMN ${c} TEXT`);
+    for (const c of ['session_id', 'reason', 'card_msg', 'card_entity', 'send_error', 'judge_meta']) if (!cols.has(c)) this.db.exec(`ALTER TABLE handled ADD COLUMN ${c} TEXT`);
     for (const c of ['ctx_tokens', 'out_tokens']) if (!cols.has(c)) this.db.exec(`ALTER TABLE handled ADD COLUMN ${c} INTEGER`);
     // 老版本 session 只在跑完时落库，进程死在半路的作业没有 —— 卡片发出去过的，从锚点表找回来（web UI 接着问要靠它）
     this.db.exec(`UPDATE handled SET session_id = (SELECT session_id FROM threads WHERE thread_id = handled.card_msg)
@@ -136,9 +139,9 @@ export class Db {
     return this.rows(`SELECT * FROM handled WHERE msg_id = ?`, msgId)[0];
   }
 
-  /** 判定的结论 + 理由。判完就写，不等跑完 —— 跑到一半重启了也知道当时为什么要回 */
-  setReason(msgId: string, reason: string): void {
-    this.db.prepare(`UPDATE handled SET reason = ? WHERE msg_id = ?`).run(reason, msgId);
+  /** 判定的结论 + 理由（及 Decisions API 结构化多维结果）。判完就写，不等跑完 */
+  setReason(msgId: string, reason: string, judgeMeta?: DecisionMeta): void {
+    this.db.prepare(`UPDATE handled SET reason = ?, judge_meta = ? WHERE msg_id = ?`).run(reason, judgeMeta ? JSON.stringify(judgeMeta) : null, msgId);
   }
 
   /**
@@ -208,6 +211,7 @@ export class Db {
       endedAt: r.ended_at ?? undefined,
       session: r.session_id ?? undefined,
       reason: r.reason ?? undefined,
+      judgeMeta: parseMeta(r.judge_meta),
       sendError: r.send_error ?? undefined,
       ctx: r.ctx_tokens ?? undefined,
       out: r.out_tokens ?? undefined,
@@ -217,4 +221,9 @@ export class Db {
   close(): void {
     this.db.close();
   }
+}
+
+function parseMeta(raw: unknown): DecisionMeta | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  try { return JSON.parse(raw) as DecisionMeta; } catch { return undefined; }
 }

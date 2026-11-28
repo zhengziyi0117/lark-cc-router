@@ -41,9 +41,10 @@
 
 ## 打到哪
 
-- 打 API 来源里的**网关**（订阅的令牌只认 Claude Code，不能直接调 API，跳过），按顺序，一个失败换下一个，出过事歇着的排后面。模板固定了某个来源就只用它。一个网关都没有就跟 claude 用同一套：环境变量优先，其次 `~/.claude/settings.json` 的 `env`（`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`）。见 `judgeTargets()`。
+- **可选：Google Gemini Decisions API**（设置 → 常规里开启，`config.json` 顶层 `decisionApi`）：开启并填好 Google AI Studio API Key（或设环境变量 `GEMINI_API_KEY`）后，判定优先打 `POST /v1beta/decisions`（默认模型 `gemini-decision-1`）。单次请求并发评估 4 题（四选一分流 `choice` + 提示词注入检测 `noul` + 是否需查代码/日志 `noul` + 紧急度 4 档打分 `score`），共享输入、0 output tokens，不依赖 Anthropic 网关，纯 Claude 订阅和 Codex 模板也能用；多维结果和概率分布会落库并在后台详情卡里展示，遇到误判时可在后台直接点「手动回复到飞书」跳过判定补回。调用失败会自动回退到下面的 Anthropic 网关。注意：Google AI Studio 免费层的输入可能用于改进模型，涉密工作群建议用付费层或改走内网网关。
+- **默认 / 回退：API 来源里的网关**（订阅的令牌只认 Claude Code，不能直接调 API，跳过），按顺序，一个失败换下一个，出过事歇着的排后面。模板固定了某个来源就只用它。一个网关都没有就跟 claude 用同一套：环境变量优先，其次 `~/.claude/settings.json` 的 `env`（`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`）。见 `judgeTargets()`。
 - 模型是这个网关 **haiku 那档**的名字（来源的 `models.haiku`；跟 claude 自己配置走时看 `ANTHROPIC_DEFAULT_HAIKU_MODEL`），都没有就是 `claude-haiku-4-5`（实测 p50 1.8 秒）。走网关时会先思考一轮的模型（自动路由那类）慢一倍。`max_tokens` 留到 1024，就是给先吐 thinking 的网关模型留余量。
-- **一个都打不了**（只有订阅，claude 自己也没配令牌）：不白打一次 401，直接按要回，理由写「没有能判定的网关」。这种配置在模板的「先判定」开关底下、「实际会怎么跑」和向导里都标红。
+- **一个都打不了**（没开 Google Decisions API，也只有订阅且 claude 自己没配令牌）：不白打一次 401，直接按要回，理由写「没有能判定的网关」。这种配置在模板的「先判定」开关底下、「实际会怎么跑」和向导里都标红。
 
 ## 不开判定
 

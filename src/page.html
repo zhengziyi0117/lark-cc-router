@@ -293,6 +293,26 @@ pre{margin:6px 0 0;padding:9px 11px;background:var(--sunk);border:1px solid var(
 .afoot>span{white-space:nowrap}
 .afoot b{color:var(--ink-2);font-weight:600;font-family:var(--mono)}
 .aerr{color:var(--bad);font-size:12.5px;margin-top:6px}
+.jcard{margin:10px 0;padding:12px 14px;background:var(--sunk);border:1px solid var(--line);border-radius:var(--r);font-size:12.5px}
+.jcard-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.jcard-h b{font-size:13.5px}
+.jcard-h .spacer{flex:1}
+.jcard-bars{display:grid;gap:6px;margin-top:10px}
+.jcard-row{display:grid;grid-template-columns:86px 1fr 44px;align-items:center;gap:8px;font-size:12px;color:var(--ink-2)}
+.jcard-row.is-top{color:var(--ink);font-weight:600}
+.jcard-track{height:7px;background:var(--surface);border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+.jcard-fill{height:100%;border-radius:99px}
+.jcard-fill.answer{background:var(--ok)}
+.jcard-fill.skip{background:var(--skip)}
+.jcard-fill.ask_me{background:var(--run)}
+.jcard-fill.stop{background:var(--bad)}
+.jcard-val{text-align:right;font-family:var(--mono)}
+.jcard-dims{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);color:var(--ink-2);font-size:12px}
+.jcard-dims b{color:var(--ink);font-weight:600}
+.jcard-dims .jcard-bad,.jcard-dims .jcard-bad b{color:var(--bad)}
+.jcard-act{display:flex;align-items:center;gap:10px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+.tag.jwarn{background:var(--bad-w);color:var(--bad);border-color:transparent}
+.tag.jurg{background:var(--run-w);color:var(--run);border-color:transparent}
 .composer{flex:none;border-top:1px solid var(--line);background:var(--surface);padding:12px 24px 14px}
 .composer textarea{display:block;max-width:50rem;margin:0 auto;font:14px/1.55 var(--sans);resize:none;
   field-sizing:content;min-height:2.8em;max-height:30vh;border-radius:var(--r);padding:9px 12px}
@@ -946,8 +966,8 @@ function renderMid() {
   ul.textContent = '';
   const byKey = new Map();
   for (const j of here.filter(modeOk)) { const k = keyOf(j); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(j); }
-  // 搜索对整串：哪一问、哪条结论对上了都算
-  const hit = (j) => (j.q + ' ' + j.who + ' ' + chatName(j.chatId) + ' ' + (j.answer || '')).toLowerCase().includes(jq);
+  // 搜索对整串：哪一问、哪条结论、判定理由对上了都算
+  const hit = (j) => (j.q + ' ' + j.who + ' ' + chatName(j.chatId) + ' ' + (j.answer || '') + ' ' + (j.reason || '')).toLowerCase().includes(jq);
   const list = [...byKey.values()]
     .map((g) => g.sort((a, b) => a.startedAt - b.startedAt))
     .filter((g) => !jq || g.some(hit))
@@ -967,12 +987,15 @@ function renderMid() {
     const line = el('div', 'jline');
     line.append(el('span', 'pill ' + j.status, st(j)));
     if (g.length > 1) line.append(tag(`${g.length} 问`));
+    if (j.judgeMeta?.injection >= 0.5) line.append(tag('疑似注入', 'jwarn'));
+    else if (j.judgeMeta?.urgency && ['高', '线上故障'].includes(j.judgeMeta.urgency.level)) line.append(tag('紧急·' + j.judgeMeta.urgency.level, 'jurg'));
     line.append(el('span', 'jtime', when(j.startedAt)));
     li.append(line, el('div', 'jq', first.q));
     if (g.length > 1) li.append(el('div', 'jlast', '↳ ' + oneLine(j.q)));
-    // 结论开头一两行：翻历史的时候不用点进去就知道答了什么
+    // 结论开头一两行（没发出的展示判定理由）：翻历史的时候不用点进去就知道为什么回 / 为什么没回
     const ans = [...g].reverse().find((x) => x.answer)?.answer;
     if (ans) li.append(el('div', 'jans', oneLine(ans.replace(/[#*`>|]/g, '')).slice(0, 160)));
+    else if (j.status === 'skipped' && j.reason) li.append(el('div', 'jans', j.reason));
     const meta = el('div', 'jmeta');
     if (j.test && !g.some((x) => !x.test)) meta.append(el('span', null, j.reply ? '网页追问' : '试跑'));
     else {
@@ -1088,7 +1111,8 @@ function renderDetail() {
   // 结论有了、只是卡片没发出去：同一个按钮变成「重发到飞书」，不重跑。
   // 飞书里来的「再跑一次」：回原会话、用原身份重跑（@我 是你本人，@机器人 是机器人）。试跑的没有原会话，照旧弹试跑框发给自己
   const resendable = !!(j.sendError && j.answer && j.status !== 'running');
-  const again = el('button', resendable ? 'primary' : null, resendable ? '重发到飞书' : '再跑一次');
+  const manualReply = !resendable && !j.test && j.status === 'skipped';
+  const again = el('button', resendable || manualReply ? 'primary' : null, resendable ? '重发到飞书' : manualReply ? '手动回复到飞书' : '再跑一次');
   if (resendable) {
     again.title = '结论已经有了，只是卡片没发出去 / 没改上：把结论重新发一张卡片' + (j.test ? '给你自己' : '到原会话') + '，不重跑';
     again.onclick = async () => {
@@ -1101,9 +1125,10 @@ function renderDetail() {
   else {
     const where = isP2P(j.chatId) ? '原私聊' : '原话题';
     const as = j.mode === 'bot' ? '以机器人身份' : '以你的身份';
-    again.title = `最新这一问${as}在${where}里重新回一次（不再判定）`;
+    again.title = manualReply ? `判定没发出去，手动改判：${as}在${where}里回复这条消息（跳过判定）` : `最新这一问${as}在${where}里重新回一次（不再判定）`;
     again.onclick = async () => {
-      if (!(await ask(`${as}在${where}里重新回一次？`, '再跑一次'))) return;
+      const promptText = manualReply ? `这条消息被判定未回复，手动${as}在${where}里回复？` : `${as}在${where}里重新回一次？`;
+      if (!(await ask(promptText, manualReply ? '手动回复' : '再跑一次'))) return;
       again.disabled = true;
       const d = await post('/api/rerun', { id: j.id, mode: j.mode });
       if (d.error) { alert(d.error); again.disabled = false; }
@@ -1241,6 +1266,69 @@ function renderChat(turns, t) {
   return wrap;
 }
 
+const JUDGE_CN = { answer: '要回', skip: '不用回', ask_me: '转给我', stop: '叫停' };
+
+/** Google Decisions API 多维判定详情卡：四选一概率 + 紧急度 / 需查代码 / 注入风险，没发出的直接给「手动回复到飞书」 */
+function judgeCard(job) {
+  const m = job.judgeMeta;
+  const card = el('div', 'jcard');
+  const hd = el('div', 'jcard-h');
+  const label = JUDGE_CN[m.decision] || m.decision;
+  hd.append(el('b', null, `判定：${label}（${Math.round((m.confidence || 0) * 100)}%）`), el('span', 'spacer'), el('span', 'note', 'Google Decisions API'));
+  card.appendChild(hd);
+
+  const probs = m.probabilities || {};
+  const keys = ['answer', 'skip', 'ask_me', 'stop'].filter((k) => typeof probs[k] === 'number').sort((a, b) => probs[b] - probs[a]);
+  if (keys.length) {
+    const bars = el('div', 'jcard-bars');
+    for (const k of keys) {
+      const p = probs[k];
+      const row = el('div', 'jcard-row' + (k === m.decision ? ' is-top' : ''));
+      const track = el('div', 'jcard-track');
+      const fill = el('div', 'jcard-fill ' + k);
+      fill.style.width = Math.max(p * 100, 1) + '%';
+      track.appendChild(fill);
+      row.append(el('span', null, `${JUDGE_CN[k] || k} · ${k}`), track, el('span', 'jcard-val', (p * 100).toFixed(1) + '%'));
+      bars.appendChild(row);
+    }
+    card.appendChild(bars);
+  }
+
+  const dims = el('div', 'jcard-dims');
+  if (m.urgency) {
+    const u = el('span', ['高', '线上故障'].includes(m.urgency.level) ? 'jcard-bad' : null, '紧急度 ');
+    u.append(el('b', null, `${m.urgency.level}（${Number(m.urgency.score).toFixed(2)}/3）`));
+    dims.appendChild(u);
+  }
+  if (typeof m.needsCodeLookup === 'number') {
+    const c = el('span', null, '需查代码/日志 ');
+    c.append(el('b', null, Math.round(m.needsCodeLookup * 100) + '%'));
+    dims.appendChild(c);
+  }
+  if (typeof m.injection === 'number') {
+    const inj = el('span', m.injection >= 0.5 ? 'jcard-bad' : null, m.injection >= 0.5 ? '⚠ 提示词注入风险 ' : '注入风险 ');
+    inj.append(el('b', null, Math.round(m.injection * 100) + '%'));
+    dims.appendChild(inj);
+  }
+  if (dims.childNodes.length) card.appendChild(dims);
+
+  if (job.status === 'skipped' && !job.test) {
+    const act = el('div', 'jcard-act');
+    const where = isP2P(job.chatId) ? '原私聊' : '原话题';
+    const as = job.mode === 'bot' ? '以机器人身份' : '以你的身份';
+    const go = el('button', 'primary', '误判了？手动回复到飞书');
+    go.onclick = async () => {
+      if (!(await ask(`跳过判定，手动${as}在${where}里回复这条消息？`, '手动回复'))) return;
+      go.disabled = true;
+      const d = await post('/api/rerun', { id: job.id, mode: job.mode });
+      if (d.error) { alert(d.error); go.disabled = false; }
+    };
+    act.append(go, el('span', 'note', '群里尚未发送任何消息，点此跳过判定直接回复'));
+    card.appendChild(act);
+  }
+  return card;
+}
+
 function turnNode({ job, prompt, t, events }, i) {
   const n = el('div', 'turn');
   n.id = 'turn-' + i;
@@ -1273,11 +1361,18 @@ function turnNode({ job, prompt, t, events }, i) {
   a._t0 = job?.startedAt || t; a._open = new Map(); a._live = job?.status === 'running';
   a._job = job; a._evs = []; a._foot = el('div', 'afoot');
   if (job) a.dataset.job = job.id;
+  if (job?.judgeMeta && job.status !== 'skipped') {
+    const jd = el('details', 'steps');
+    fold(jd, 'judge-' + job.id, false);
+    jd.append(el('summary', null, job.reason ? `判定详情 · ${job.reason}` : '判定详情'), judgeCard(job));
+    a.appendChild(jd);
+  }
   for (const ev of events || []) appendEv(a, ev);
   if (!a.querySelector('.atext')) {
     if (job?.answer) a.appendChild(answerNode(job.answer));
+    else if (job?.status === 'skipped' && job?.judgeMeta) a.appendChild(judgeCard(job));
     else if (job?.status === 'skipped') a.appendChild(el('div', 'note', job.reason ? `判定 ${job.reason} —— 群里什么都没发。` : '判断这条不用回 —— 什么都没发出去。'));
-    else if (job?.reason) a.appendChild(el('div', 'note', job.reason));
+    else if (job?.reason && !job?.judgeMeta) a.appendChild(el('div', 'note', job.reason));
     else if (job && job.status !== 'running' && !events?.length) a.appendChild(el('div', 'note', '本机找不到这次的 session 记录（Codex，或者换过机器），过程没法找回来。'));
   }
   n.appendChild(a);
@@ -1782,6 +1877,12 @@ const editable = () => ({
   templates: JSON.parse(JSON.stringify(cfg.templates)),
   // from：存着的名字。令牌页面上拿不到，改了名服务端靠它找回来；token 没这个键 = 不改，'' = 清掉
   apis: cfg.apis.map((a) => ({ ...a, models: { ...a.models }, from: a.name })),
+  decisionApi: {
+    on: !!cfg.decisionApi?.on,
+    baseUrl: cfg.decisionApi?.baseUrl || '',
+    model: cfg.decisionApi?.model || '',
+    hasKey: !!cfg.decisionApi?.hasKey,
+  },
 });
 
 function openSettings(at) {
@@ -1826,7 +1927,7 @@ function hashPane() {
 function changes() {
   if (!draft) return [];
   const out = new Set();
-  if (draft.maxJobs !== saved.maxJobs) out.add(GENERAL);
+  if (draft.maxJobs !== saved.maxJobs || JSON.stringify(draft.decisionApi) !== JSON.stringify(saved.decisionApi)) out.add(GENERAL);
   if (JSON.stringify(draft.apis) !== JSON.stringify(saved.apis)) out.add(CC);
   for (const k of ['user', 'bot']) {
     const d = draft[k], s = saved[k];
@@ -1992,11 +2093,55 @@ function paneGeneral(head, body) {
   b1.appendChild(g1);
   body.appendChild(b1);
 
+  const d = draft.decisionApi;
+  const b2 = blk('判定 · Google Decisions API（可选）',
+    '开启后，模板的「先判定要不要回」优先走 Google Gemini Decisions API（原生四选一分类，0 输出 token，不依赖 Anthropic 网关，纯订阅 / Codex 也能用）。没开或调用失败时回退到原来的网关。');
+  b2.querySelector('.blkh').appendChild(sw(d.on, '', (on) => { d.on = on; touch(); rerenderPane(); }));
+  if (d.on) {
+    const key = el('input'); key.type = 'password'; key.autocomplete = 'off'; key.value = d.apiKey || '';
+    const clr = btn('清掉', () => { d.apiKey = ''; key.value = ''; ph(); touch(); }, 'ghost');
+    const ph = () => {
+      key.placeholder = d.apiKey === '' ? '保存后清掉' : d.hasKey ? '已保存，留空不改' : 'AIza…（不填也会读环境变量 GEMINI_API_KEY）';
+      clr.hidden = !d.hasKey || d.apiKey === '';
+    };
+    key.oninput = () => { if (key.value) d.apiKey = key.value; else delete d.apiKey; ph(); touch(); };
+    ph();
+    const kr = el('div', 'inrow'); kr.append(key, clr);
+    b2.appendChild(fi('API Key', kr, '在 Google AI Studio 申请。注意：免费层输入可能被 Google 用于改进模型，涉密工作群建议用付费层或改走内网网关。'));
+
+    const url = el('input'); url.value = d.baseUrl || ''; url.placeholder = cfg.decisionApiDefaults?.baseUrl || 'https://generativelanguage.googleapis.com'; url.spellcheck = false;
+    url.oninput = () => { d.baseUrl = url.value.trim(); touch(); };
+    const mod = el('input'); mod.value = d.model || ''; mod.placeholder = cfg.decisionApiDefaults?.model || 'gemini-decision-1'; mod.spellcheck = false;
+    mod.oninput = () => { d.model = mod.value.trim(); touch(); };
+    const g2 = el('div', 'grid2');
+    g2.append(fi('接口地址（可选，反代/中转用）', url), fi('模型（可选）', mod));
+    b2.appendChild(g2);
+
+    const res = el('p', 'hint', '');
+    const test = btn('测一下', async () => {
+      test.disabled = true; res.className = 'hint'; res.textContent = '打一次最小判定…';
+      const { hasKey, ...payload } = d;
+      const r0 = await post('/api/setup/decision-api/test', payload).catch((e) => ({ error: e.message }));
+      const r = r0.result;
+      res.className = 'hint' + (r?.ok ? '' : ' bad');
+      res.textContent = r ? (r.ok ? '✓ ' : '✗ ') + r.detail + (r.ms ? '（' + r.ms + 'ms）' : '') : '✗ ' + (r0.error || '测不了');
+      test.disabled = false;
+    });
+    const ta = el('div', 'inrow'); ta.style.marginTop = '10px'; ta.append(test, res);
+    b2.appendChild(ta);
+  } else {
+    b2.appendChild(el('p', 'hint', '关着：判定沿用 API 来源里网关的 haiku 档模型。'));
+  }
+  body.appendChild(b2);
+
   const b3 = blk('服务', '端口在 config.json 里，改完要重启进程。');
-  b3.querySelector('.hint').append('「我」在 ', goLink('飞书', LARK), ' 里换，API 来源在 ', goLink('Claude Code', CC), ' 里改（判定用来源 haiku 那档的模型）。');
+  b3.querySelector('.hint').append('「我」在 ', goLink('飞书', LARK), ' 里换，API 来源在 ', goLink('Claude Code', CC), ' 里改（没开 Google Decisions API 时判定用来源 haiku 那档）。');
   const dl = el('dl', 'kv');
   const apis = cfg.apis.length ? cfg.apis.map((a) => a.name).join(' → ') + '（按顺序，出问题换下一个）' : cfg.ownClaude;
-  for (const [k, v] of [['监听', '127.0.0.1:' + cfg.port + '（只回环）'], ['我', cfg.me], ['API 来源', apis]]) dl.append(el('dt', null, k), el('dd', null, v));
+  const judgeDesc = cfg.decisionApi?.on
+    ? (cfg.decisionApi.hasKey ? 'Google Decisions API（' + (cfg.decisionApi.model || cfg.decisionApiDefaults?.model || 'gemini-decision-1') + '）' : 'Google Decisions API（已开，未填 Key）')
+    : '随 API 来源（haiku 档）';
+  for (const [k, v] of [['监听', '127.0.0.1:' + cfg.port + '（只回环）'], ['我', cfg.me], ['API 来源', apis], ['判定', judgeDesc]]) dl.append(el('dt', null, k), el('dd', null, v));
   b3.appendChild(dl);
   body.appendChild(b3);
 }
@@ -2584,7 +2729,8 @@ async function paintExplain() {
   const name = pane, t = draft?.templates[name];
   if (!t || !$('explain')) return;
   const seq = ++explainSeq;
-  const d = await post('/api/explain', { template: t, apis: draft.apis.map(({ hasToken, ...a }) => a) }).catch((e) => ({ error: e.message }));
+  const { hasKey, ...decisionApi } = draft.decisionApi || {};
+  const d = await post('/api/explain', { template: t, apis: draft.apis.map(({ hasToken, ...a }) => a), decisionApi }).catch((e) => ({ error: e.message }));
   const box = $('explain');
   if (seq !== explainSeq || !box || pane !== name) return;
   box.textContent = '';
@@ -2725,7 +2871,9 @@ function paneTemplate(head, body, name) {
   const jtg = el('p', 'hint'); jtg.id = 'judge-target'; jtg.hidden = true;
   b3.appendChild(jtg);
   if (t.judge) {
-    b3.appendChild(el('p', 'hint', '先拿这段提示词直接调一次 API 网关上的快模型（API 来源 haiku 那档，不带工具，一两秒）：要回才交给它；不用回就算了；转给我 = 私聊你一条；叫停 = 掐掉这个会话里在跑的。输出格式是代码里定的，这里只写分类和例子。'));
+    const jtip = el('p', 'hint', '先拿这段提示词直接调一次判定接口（不带工具，一两秒）：要回才交给执行器；不用回就算了；转给我 = 私聊你一条；叫停 = 掐掉这个会话里在跑的。默认走网关的 haiku 档，也可以 ');
+    jtip.append(goLink('在「常规」开启 Google Decisions API', GENERAL), '。');
+    b3.appendChild(jtip);
     const jt = el('textarea', 'prose'); jt.rows = 11; jt.value = t.judge; jt.setAttribute('aria-label', '判定提示词');
     jt.oninput = () => { setOr(t, 'judge', jt.value.trim()); touch(); };
     const jf = el('button', 'link', '换成内置默认判定');
@@ -2959,7 +3107,8 @@ $('set-save').onclick = async () => {
   st.textContent = '保存中…'; st.className = 'note';
   $('set-save').disabled = true;
   pendingReload = true;   // 服务端推回新配置时重建 draft（可能比这个响应先到）
-  const d = await post('/api/config', { ...draft, apis: draft.apis.map(({ hasToken, ...a }) => a) }).catch((e) => ({ error: e.message }));
+  const { hasKey, ...decisionApi } = draft.decisionApi || {};
+  const d = await post('/api/config', { ...draft, apis: draft.apis.map(({ hasToken, ...a }) => a), decisionApi }).catch((e) => ({ error: e.message }));
   if (!d.ok) {
     pendingReload = false;
     st.textContent = '没保存上：' + d.error; st.className = 'warn';

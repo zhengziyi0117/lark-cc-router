@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
-import { loadConfig, saveConfig, sanitizeConfig, projectFor, promptFor, argsFor, resolveChat, routingTemplates, claudeSettingsFor, migrate, isOn, scopeOf, apiEnv, sanitizeApis } from './config.ts';
+import { loadConfig, saveConfig, sanitizeConfig, projectFor, promptFor, argsFor, resolveChat, routingTemplates, claudeSettingsFor, migrate, isOn, scopeOf, apiEnv, sanitizeApis, sanitizeDecisionApi, publicDecisionApi } from './config.ts';
 
 const ME = 'ou_me';
 /** 解会话要的是一个入口眼里的配置（chats / defaultTemplate 摊在顶上）。这些测试测的都是 @我 那份 */
@@ -398,4 +398,24 @@ test('所有私聊 / 所有群：开了那一类就不看白名单；白名单�
   assert.equal(next.user.allP2p, true);
   assert.equal(next.user.allGroups, false, '不是布尔的落回当前值');
   assert.equal(next.bot.allGroups, true, '没传的入口原样留着');
+});
+
+test('Google Decisions API 配置：密钥不下发页面、没传沿用已存、空串清掉、坏地址/模型名拒收', () => {
+  const cur = { on: true, apiKey: 'secret-key', baseUrl: 'https://proxy.local' };
+  const pub = publicDecisionApi(cur);
+  assert.deepEqual(pub, { on: true, baseUrl: 'https://proxy.local', model: '', hasKey: true });
+  assert.ok(!JSON.stringify(pub).includes('secret-key'));
+
+  assert.deepEqual(sanitizeDecisionApi({ on: true, baseUrl: 'https://proxy.local/' }, cur),
+    { decisionApi: { on: true, apiKey: 'secret-key', baseUrl: 'https://proxy.local' } }, '没传 apiKey 沿用旧的');
+  assert.deepEqual(sanitizeDecisionApi({ on: false, apiKey: '' }, cur),
+    { decisionApi: undefined }, '关掉且清掉 Key 后不留空对象');
+  assert.ok(sanitizeDecisionApi({ on: true, baseUrl: 'ftp://bad' }, cur).error);
+  assert.ok(sanitizeDecisionApi({ on: true, model: 'bad model' }, cur).error);
+
+  const p = tmp({ oc_a: '' });
+  saveConfig({ decisionApi: { on: true, apiKey: 'k1' } }, p);
+  assert.deepEqual(loadConfig(p).decisionApi, { on: true, apiKey: 'k1' });
+  saveConfig({ decisionApi: undefined }, p);
+  assert.equal('decisionApi' in JSON.parse(readFileSync(p, 'utf8')), false, '清空后从文件里删掉键');
 });

@@ -7,7 +7,7 @@ import {
   type Bot, type Message,
 } from './lark.ts';
 import { healthDiff, healthOf, withPending, type Health } from './health.ts';
-import { callJudge, judgeInput, judgeTargets, DECISION_CN, type Verdict } from './judge.ts';
+import { callDecisionApi, callJudge, decisionTarget, judgeInput, judgeTargets, DECISION_CN, type Verdict } from './judge.ts';
 import { runAgent, readTranscript, CONTINUE, Usage, type AgentEvent, type RunOptions, type RunResult } from './agent.ts';
 import { Pool } from './store.ts';
 import { startJob, pushEvent, finishJob, markPosted, setReason } from './bus.ts';
@@ -426,6 +426,7 @@ export interface Deps {
   /** 「再跑一次」取回原消息（身份显式传，两条路共用） */
   fetchMessage: typeof fetchMessage;
   judge: typeof callJudge;
+  decisionJudge?: typeof callDecisionApi;
   /** 流式卡片（只有机器人用）。@我 那条路不碰它 */
   kit: Kit;
   /** 话题上下文：两个入口都以**我**的身份读（见 topicMessages），图也是 */
@@ -456,6 +457,7 @@ const BOT: Deps = {
  */
 export async function judgeFor(
   cfg: Scope, m: Message, followUp: boolean, judge: Deps['judge'] = callJudge, self: string[] = [cfg.me],
+  decisionJudge: typeof callDecisionApi = callDecisionApi,
 ): Promise<Verdict | undefined> {
   const { judge: prompt, apis } = resolveChat(cfg, m.chat_id);
   if (!prompt) return undefined; // 模板没写判定 = 直接回
@@ -468,10 +470,31 @@ export async function judgeFor(
     followUp,
     content: m.content,
   });
+  let err: any;
+  // 开启了 Google Decisions API 时优先走它；挂了再回退到 Anthropic 网关
+  const decision = decisionTarget(cfg.decisionApi);
+  if (decision) {
+    try {
+      return await decisionJudge(prompt, input, decision);
+    } catch (e: any) {
+      err = e;
+      log(`判定打「Google Decisions API」失败: ${e.message}`);
+    }
+  }
   // 判定直接调 API：只走网关，一个不行换下一个（见 judgeTargets）。一个都打不了就别白打，直接按要回
   const targets = judgeTargets(inOrder(apis));
-  if (!targets.length) return { decision: 'answer', reason: '没有能判定的网关（订阅不能直接调 API），按要回处理' };
-  let err: any;
+  if (!targets.length) {
+    if (err) {
+      log(`判定失败，按要回处理: ${err.message}`);
+      return { decision: 'answer', reason: `判定失败，按要回处理（${err.message.slice(0, 80)}）` };
+    }
+    return {
+      decision: 'answer',
+      reason: cfg.decisionApi?.on
+        ? 'Google Decisions API 还没填 API Key，也没有可用的网关，按要回处理'
+        : '没有能判定的网关（订阅不能直接调 API），按要回处理',
+    };
+  }
   for (const { api: a, model } of targets) {
     try {
       return await judge(model, prompt, input, a && { baseUrl: a.baseUrl!, token: a.token });
@@ -557,10 +580,10 @@ export async function investigate(cfg: Scope, pool: Pool, db: Db, m: Message, de
   // **先判要不要回，再动别的**：判了不回的不该把同一个 session 上在跑的掐掉
   startJob({ id: m.message_id, chatId: m.chat_id, who, q, project, mode, session: resume });
   // 重跑不判定：人都点了「再跑一次」了
-  const verdict = rerun ? undefined : await judgeFor(cfg, m, !!inherited, deps.judge, isBot ? bot?.ids : undefined);
+  const verdict = rerun ? undefined : await judgeFor(cfg, m, !!inherited, deps.judge, isBot ? bot?.ids : undefined, deps.decisionJudge);
   if (verdict) {
-    db.setReason(m.message_id, reasonText(verdict));
-    setReason(m.message_id, reasonText(verdict));
+    db.setReason(m.message_id, reasonText(verdict), verdict.meta);
+    setReason(m.message_id, reasonText(verdict), verdict.meta);
     log(`判定 ${m.message_id}: ${reasonText(verdict)}`);
   }
   if (stopped) {

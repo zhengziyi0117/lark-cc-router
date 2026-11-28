@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { AgentEvent } from './agent.ts';
+import type { DecisionMeta } from './judge.ts';
 
 /** 带上到达时刻的事件 —— web UI 的时间轴要靠它算「第几秒发生了什么」 */
 export type StampedEvent = AgentEvent & { t: number };
@@ -25,6 +26,8 @@ export interface Job {
   session?: string;
   /** 判定的结论 + 理由（见 judge.ts） */
   reason?: string;
+  /** Google Decisions API 多维判定结果（概率分布、紧急度、注入风险等） */
+  judgeMeta?: DecisionMeta;
   /** 群里那个话题开了没有。判明"确实要排查"之前是 false —— 见 pipeline 的 shouldOpenThread */
   posted?: boolean;
   /** 飞书卡片没发出去 / 收尾那帧没改上的原因。有它就不算成功：web UI 上那个按钮变成「重发到飞书」 */
@@ -96,11 +99,12 @@ export function finishJob(id: string, patch: Partial<Pick<Job, "status" | "answe
   emitJob(job);
 }
 
-/** 判定结论出来了（作业还在跑）。web UI 上马上能看到"为什么要回" */
-export function setReason(id: string, reason: string): void {
+/** 判定结论出来了（作业还在跑）。web UI 上马上能看到"为什么要回"和多维概率 */
+export function setReason(id: string, reason: string, judgeMeta?: DecisionMeta): void {
   const job = jobs.get(id);
   if (!job) return;
   job.reason = reason;
+  if (judgeMeta) job.judgeMeta = judgeMeta;
   emitJob(job);
 }
 

@@ -483,6 +483,32 @@ test('判定没处可打（只有订阅、claude 自己也没配令牌）：不�
   }
 });
 
+test('开了 Google Decisions API：优先走它（纯订阅也能判，多维结果落库），失败再回退到 Anthropic 网关', async () => {
+  const f = fake(async (o) => { emit(o, { kind: 'text', text: '答' }); return { text: '答', ok: true }; });
+  let usedDecision = 0;
+  const meta = { decision: 'skip' as const, confidence: 0.95, probabilities: { skip: 0.95, answer: 0.05 }, injection: 0.01, needsCodeLookup: 0.02, urgency: { score: 0.1, level: '低' } };
+  f.deps.decisionJudge = async () => { usedDecision++; return { decision: 'skip', reason: '置信度 95%（Decisions API）', meta }; };
+  const cfg = judgedCfg('oc_jdec');
+  cfg.apis = [{ name: 'sub', kind: 'subscription' }];
+  cfg.decisionApi = { on: true, apiKey: 'AIza-test' };
+
+  const db = tmpDb();
+  await investigate(cfg, new Pool(3), db, msg({ message_id: 'om_jdec1', chat_id: 'oc_jdec' }), f.deps);
+  assert.equal(usedDecision, 1);
+  assert.equal(f.judged(), 0, '走了 Decisions API 就不打 Anthropic 网关');
+  assert.equal(f.calls.length, 0, 'skip 不起 CC');
+  assert.match(db.recent(1)[0].reason ?? '', /不用回：置信度 95%/);
+  assert.deepEqual(db.get('om_jdec1')?.judgeMeta, meta, '结构化多维判定结果落库，重启后后台也能看概率');
+
+  // Decisions API 失败时回退到网关
+  f.deps.decisionJudge = async () => { throw new Error('503'); };
+  f.deps.judge = async () => ({ decision: 'skip', reason: '网关兜底' });
+  cfg.apis = [{ name: 'gw', kind: 'gateway', baseUrl: 'http://gw.local', token: 'tk' }];
+  await investigate(cfg, new Pool(3), db, msg({ message_id: 'om_jdec2', chat_id: 'oc_jdec' }), f.deps);
+  assert.equal(f.calls.length, 0);
+  assert.match(db.get('om_jdec2')?.reason ?? '', /网关兜底/);
+});
+
 
 /* ---------- 多个 API 来源：按顺序用，出问题换下一个 ---------- */
 
